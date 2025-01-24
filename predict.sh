@@ -1,0 +1,1 @@
+python predict.py --trained_model=model/craft_mlt_25k.pth --test_folder=data/test --result_folder=result/test

@@ -9,6 +9,62 @@ import cv2
 import math
 
 
+def getCharBoxes_core(textmap, text_threshold, low_text):
+    print ("text_threshold:", text_threshold)
+    # prepare data
+    textmap = textmap.copy()
+    img_h, img_w = textmap.shape
+
+    # thresholding
+    ret, text_score = cv2.threshold(textmap, low_text, 1, 0)
+
+    # label connected components
+    nLabels, labels, stats, centroids = cv2.connectedComponentsWithStats(text_score.astype(np.uint8), connectivity=4)
+
+    det = []
+    mapper = []
+    for k in range(1, nLabels):  # skip background label
+        # size filtering
+        size = stats[k, cv2.CC_STAT_AREA]
+        if size < 10:  # filter out small areas
+            continue
+
+        # thresholding: check if max score in the region is above text_threshold
+        if np.max(textmap[labels == k]) < text_threshold:
+            continue
+
+        # create bounding box
+        x, y = stats[k, cv2.CC_STAT_LEFT], stats[k, cv2.CC_STAT_TOP]
+        w, h = stats[k, cv2.CC_STAT_WIDTH], stats[k, cv2.CC_STAT_HEIGHT]
+        
+        # generate the contours of the connected component
+        segmap = np.zeros(textmap.shape, dtype=np.uint8)
+        segmap[labels == k] = 255
+        np_contours = np.roll(np.array(np.where(segmap != 0)), 1, axis=0).transpose().reshape(-1, 2)
+
+        # Use minAreaRect to get a rotated rectangle that fits the contours
+        rectangle = cv2.minAreaRect(np_contours)
+        box = cv2.boxPoints(rectangle)
+
+        # If the box is nearly a square, replace it with an axis-aligned rectangle
+        w, h = np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2])
+        box_ratio = max(w, h) / (min(w, h) + 1e-5)
+        if abs(1 - box_ratio) <= 0.1:
+            l, r = min(np_contours[:, 0]), max(np_contours[:, 0])
+            t, b = min(np_contours[:, 1]), max(np_contours[:, 1])
+            box = np.array([[l, t], [r, t], [r, b], [l, b]], dtype=np.float32)
+
+        # Arrange box coordinates in clockwise order
+        startidx = box.sum(axis=1).argmin()
+        box = np.roll(box, 4 - startidx, 0)
+        
+        # append the bounding box and label
+        det.append(box)
+        mapper.append(k)
+
+    return det, labels, mapper
+
+
 def getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text):
     # prepare data
     linkmap = linkmap.copy()
@@ -73,7 +129,8 @@ def getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text)
 
 
 def getDetBoxes(textmap, linkmap, text_threshold, link_threshold, low_text):
-    boxes, labels, mapper = getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text)
+    #boxes, labels, mapper = getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text)
+    boxes, labels, mapper = getCharBoxes_core(textmap, text_threshold, low_text)
 
     return boxes
 

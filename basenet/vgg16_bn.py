@@ -4,7 +4,13 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 from torchvision import models
-from torchvision.models.vgg import model_urls
+#from torchvision.models.vgg import model_urls
+
+model_urls = {
+    'vgg16_bn': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth',
+    # 添加其他需要的模型 URL
+}
+
 
 def init_weights(modules):
     for m in modules:
