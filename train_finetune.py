@@ -15,9 +15,10 @@ from eval import copyStateDict, eval_net_finetune
 from utils.cal_loss import cal_fakeData_loss, cal_synthText_loss
 from dataset.synthDataset import SynthDataset
 from dataset.icdar2013_dataset import Icdar2013Dataset
+from dataset.icdar2017_dataset import Icdar2017Dataset
 import argparse
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
@@ -25,10 +26,11 @@ parser = argparse.ArgumentParser(description='CRAFT Train Fine-Tuning')
 parser.add_argument('--gt_path', default='/media/brooklyn/EEEEE142EEE10425/SynthText/gt.mat', type=str, help='SynthText gt.mat')
 parser.add_argument('--synth_dir', default='/media/brooklyn/EEEEE142EEE10425/SynthText', type=str, help='SynthText image dir')
 parser.add_argument('--ic13_root', default='/home/brooklyn/ICDAR/icdar2013', type=str, help='icdar2013 data dir')
+parser.add_argument('--ic17_root', default='data/ICDAR2017', type=str, help='icdar2017 data dir')
 parser.add_argument('--label_size', default=96, type=int, help='target label size')
 parser.add_argument('--batch_size', default=16, type=int, help='training data batch size')
 parser.add_argument('--test_batch_size', default=16, type=int, help='training data batch size')
-parser.add_argument('--cuda', default=True, type=str2bool, help='Use cuda to train model')
+parser.add_argument('--cuda', default=False, type=str2bool, help='Use cuda to train model')
 parser.add_argument('--pretrained_model', default='model/craft_mlt_25k.pth', type=str, help='pretrained model path')
 parser.add_argument('--lr', default=3e-5, type=float, help='initial learning rate')
 parser.add_argument('--epochs', default=20, type=int, help='training epochs')
@@ -45,18 +47,36 @@ label_transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, model_save_prefix, save_weight=True):
-
-    ic13_data = Icdar2013Dataset(cuda=args.cuda,
-                                 image_transform=image_transform,
-                                 label_transform=label_transform,
-                                 model_path=test_model_path,
-                                 images_dir=os.path.join(args.ic13_root, 'train_images'),
-                                 labels_dir=os.path.join(args.ic13_root, 'train_labels'))
+def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, model_save_prefix, save_weight=True, device="cpu",type="ic17"):
+    
+    print ("cuda:", args.cuda)
+    print ("device:", device)
+    if type=="ic13":
+        ic13_data = Icdar2013Dataset(cuda=args.cuda,
+                                    image_transform=image_transform,
+                                    label_transform=label_transform,
+                                    model_path=test_model_path,
+                                    images_dir=os.path.join(args.ic13_root, 'train_images'),
+                                    labels_dir=os.path.join(args.ic13_root, 'train_labels'))
+        ic13_length = len(ic13_data)
+        train_loader = torch.utils.data.DataLoader(ic13_data, batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(ic13_data, batch_size=test_batch_size, shuffle=False)
+        print('len train data:', len(ic13_data))
+    elif type=="ic17":
+        ic17_data = Icdar2017Dataset(cuda=args.cuda,
+                                    image_transform=image_transform,
+                                    label_transform=label_transform,
+                                    model_path=test_model_path,
+                                    images_dir=os.path.join(args.ic17_root, 'train_images'),
+                                    labels_dir=os.path.join(args.ic17_root, 'train_labels'))
+        ic17_length = len(ic17_data)
+        train_loader = torch.utils.data.DataLoader(ic17_data, batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(ic17_data, batch_size=test_batch_size, shuffle=False)
+        print('len train data:', len(ic17_data))
 
     steps_per_epoch = 100
 
-    ic13_length = len(ic13_data)
+    """
     synth_data = SynthDataset(image_transform=image_transform,
                               label_transform=label_transform,
                               file_path=args.gt_path,
@@ -67,10 +87,9 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
     #合并弱数据集和强数据集
     fine_tune_data = torch.utils.data.ConcatDataset([synth_data, ic13_data])
     train_data, val_data = torch.utils.data.random_split(fine_tune_data, [5*ic13_length, ic13_length])
+    """
 
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size, shuffle=True)
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size=test_batch_size, shuffle=False)
-    print('len train data:', len(train_data))
+    
     criterion = nn.MSELoss(reduction='none')
     optimizer = optim.Adam(net.parameters(), lr)
 
@@ -118,7 +137,8 @@ if __name__ == "__main__":
     lr = args.lr  # 学习率
     test_interval = args.test_interval #测试间隔
     pretrained_model = args.pretrained_model #预训练模型
-    net = CRAFT(pretrained=True)  # craft模型
+    device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
+    net = CRAFT(pretrained=False)  # craft模型
 
     if args.cuda:
         net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
@@ -140,7 +160,8 @@ if __name__ == "__main__":
               test_batch_size=test_batch_size,
               lr=lr,test_interval=test_interval,
               test_model_path=pretrained_model,
-              model_save_prefix =  model_save_prefix)
+              model_save_prefix =  model_save_prefix,
+              device=device)
     except KeyboardInterrupt:
         torch.save(net.state_dict(), 'INTERRUPTED.pth')
         print('Saved interrupt')
