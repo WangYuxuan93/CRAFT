@@ -16,6 +16,7 @@ from utils.cal_loss import cal_fakeData_loss, cal_synthText_loss
 from dataset.synthDataset import SynthDataset
 from dataset.icdar2013_dataset import Icdar2013Dataset
 from dataset.icdar2017_dataset import Icdar2017Dataset
+from dataset.textdetect_dataset import TextDetectDataset
 import argparse
 
 
@@ -27,6 +28,7 @@ parser.add_argument('--gt_path', default='/media/brooklyn/EEEEE142EEE10425/Synth
 parser.add_argument('--synth_dir', default='/media/brooklyn/EEEEE142EEE10425/SynthText', type=str, help='SynthText image dir')
 parser.add_argument('--ic13_root', default='/home/brooklyn/ICDAR/icdar2013', type=str, help='icdar2013 data dir')
 parser.add_argument('--ic17_root', default='data/ICDAR2017', type=str, help='icdar2017 data dir')
+parser.add_argument('--td_root', default='data/text_detect', type=str, help='Text detect data dir')
 parser.add_argument('--label_size', default=96, type=int, help='target label size')
 parser.add_argument('--batch_size', default=16, type=int, help='training data batch size')
 parser.add_argument('--test_batch_size', default=16, type=int, help='training data batch size')
@@ -47,11 +49,12 @@ label_transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, model_save_prefix, save_weight=True, device="cpu",type="ic17"):
+def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, model_save_prefix, save_weight=True, device="cpu",type="td"):
     
     print ("cuda:", args.cuda)
     print ("device:", device)
-    if type=="ic13":
+    
+    if type == "ic13":
         ic13_data = Icdar2013Dataset(cuda=args.cuda,
                                     image_transform=image_transform,
                                     label_transform=label_transform,
@@ -62,7 +65,7 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         train_loader = torch.utils.data.DataLoader(ic13_data, batch_size, shuffle=True)
         val_loader = torch.utils.data.DataLoader(ic13_data, batch_size=test_batch_size, shuffle=False)
         print('len train data:', len(ic13_data))
-    elif type=="ic17":
+    elif type == "ic17":
         ic17_data = Icdar2017Dataset(cuda=args.cuda,
                                     image_transform=image_transform,
                                     label_transform=label_transform,
@@ -73,6 +76,15 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         train_loader = torch.utils.data.DataLoader(ic17_data, batch_size, shuffle=True)
         val_loader = torch.utils.data.DataLoader(ic17_data, batch_size=test_batch_size, shuffle=False)
         print('len train data:', len(ic17_data))
+    elif type == "td":
+        td_data = TextDetectDataset(image_transform=image_transform,
+                                    label_transform=label_transform,
+                                    images_dir=os.path.join(args.td_root, 'train_images'),
+                                    labels_dir=os.path.join(args.td_root, 'train_labels'))
+        td_length = len(td_data)
+        train_loader = torch.utils.data.DataLoader(td_data, batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(td_data, batch_size=test_batch_size, shuffle=False)
+        print('len train data:', len(td_data))
 
     steps_per_epoch = 100
 

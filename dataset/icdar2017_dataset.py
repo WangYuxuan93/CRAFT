@@ -68,18 +68,47 @@ class Icdar2017Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.image_names)
 
+    def draw_box(self, image, word_boxes):
+        from PIL import Image, ImageDraw
+        import matplotlib.pyplot as plt
+
+        # 将图片转换为PIL对象以便绘制
+        image_pil = Image.fromarray(image)
+        
+        # 创建一个ImageDraw对象来在图片上绘制
+        draw = ImageDraw.Draw(image_pil)
+
+        # 遍历word_boxes，绘制bounding box
+        for box in word_boxes:
+            # 获取四个角的坐标
+            top_left = tuple(box[0])
+            top_right = tuple(box[1])
+            bottom_right = tuple(box[2])
+            bottom_left = tuple(box[3])
+            
+            # 绘制矩形框
+            draw.line([top_left, top_right, bottom_right, bottom_left, top_left], fill="red", width=2)
+
+        # 显示绘制后的图片
+        plt.imshow(image_pil)
+        plt.axis('off')  # 不显示坐标轴
+        plt.show()
+
     # label应为高斯热力图
     def __getitem__(self, idx):
         fn = self.image_names[idx]
         image = load_image(os.path.join(self.images_dir, fn))
         label_name = self.label_names[idx]
         word_boxes, words = get_icdar2017_wordsList(os.path.join(self.labels_dir, label_name))
+        #self.draw_box(image, word_boxes)
         char_boxes_list, affinity_boxes_list, confidence_list = self.get_affinity_boxes_list(image, word_boxes, words)
+        self.draw_box(image, char_boxes_list)
         height, width = image.shape[:2] #opencv方式
         heat_map_size = (height, width)
         #get pixel-wise confidence map
         sc_map = self.get_sc_map(heat_map_size, word_boxes, confidence_list) * 255
         region_scores = self.get_region_scores(heat_map_size, char_boxes_list) * 255
+        print (region_scores)
         affinity_scores = self.get_region_scores(heat_map_size, affinity_boxes_list) * 255
 
         #opencv转为PIL.Image
