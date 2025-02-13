@@ -35,17 +35,20 @@ def cal_synthText_loss(criterion, score_text, score_link, labels_region, labels_
 
     numPos_region, numNeg_region, numPos_affinity, numNeg_affinity = get_ohem_num(labels_region, labels_affinity,
                                                                                   device)
+    
+    _labels_region = labels_region.cpu()
+    _labels_affinity = labels_affinity.cpu()
     #联合损失 ohem loss
     #取全部的postive pixels的loss
-    loss1_fg = criterion(score_text[np.where(labels_region > 0.1)], labels_region[np.where(labels_region > 0.1)])
+    loss1_fg = criterion(score_text[np.where(_labels_region > 0.1)], labels_region[np.where(_labels_region > 0.1)])
     loss1_fg = torch.sum(loss1_fg) / numPos_region.to(torch.float32)
-    loss1_bg = criterion(score_text[np.where(labels_region <= 0.1)], labels_region[np.where(labels_region <= 0.1)])
+    loss1_bg = criterion(score_text[np.where(_labels_region <= 0.1)], labels_region[np.where(_labels_region <= 0.1)])
     #selects the pixel with high loss in the negative pixels
     loss1_bg, _ = loss1_bg.sort(descending=True)
     loss1_bg = torch.sum(loss1_bg[:numNeg_region]) / numNeg_region.to(torch.float32)
-    loss2_fg = criterion(score_link[np.where(labels_affinity > 0.1)], labels_affinity[np.where(labels_affinity > 0.1)])
+    loss2_fg = criterion(score_link[np.where(_labels_affinity > 0.1)], labels_affinity[np.where(_labels_affinity > 0.1)])
     loss2_fg = torch.sum(loss2_fg) / numPos_affinity.to(torch.float32)
-    loss2_bg = criterion(score_link[np.where(labels_affinity <= 0.1)], labels_affinity[np.where(labels_affinity <= 0.1)])
+    loss2_bg = criterion(score_link[np.where(_labels_affinity <= 0.1)], labels_affinity[np.where(_labels_affinity <= 0.1)])
     loss2_bg, _ = loss2_bg.sort(descending=True)
     loss2_bg = torch.sum(loss2_bg[:numNeg_affinity]) / numNeg_affinity.to(torch.float32)
     #联合loss
@@ -66,21 +69,24 @@ def cal_fakeData_loss(criterion, score_text, score_link, labels_region, labels_a
     """
     numPos_region, numNeg_region, numPos_affinity, numNeg_affinity = get_ohem_num(labels_region, labels_affinity,
                                                                                   device)
+    
+    _labels_region = labels_region.cpu()
+    _labels_affinity = labels_affinity.cpu()
         #计算loss
-    loss1_fg = criterion(score_text[np.where(labels_region > 0.1)], labels_region[np.where(labels_region > 0.1)])
+    loss1_fg = criterion(score_text[np.where(_labels_region > 0.1)], labels_region[np.where(_labels_region > 0.1)])
     #添加 pixel-wise confidence map
-    loss1_fg = loss1_fg * sc_map[np.where(labels_region > 0.1)]
+    loss1_fg = loss1_fg * sc_map[np.where(_labels_region > 0.1)]
     loss1_fg = torch.sum(loss1_fg) / numPos_region.to(torch.float32)
-    loss1_bg = criterion(score_text[np.where(labels_region <= 0.1)], labels_region[np.where(labels_region <= 0.1)])
-    loss1_bg = loss1_bg * sc_map[np.where((labels_region <= 0.1))]
+    loss1_bg = criterion(score_text[np.where(_labels_region <= 0.1)], labels_region[np.where(_labels_region <= 0.1)])
+    loss1_bg = loss1_bg * sc_map[np.where((_labels_region <= 0.1))]
     #selects the pixel with high loss in the negative pixels
     loss1_bg, _ = loss1_bg.sort(descending=True)
     loss1_bg = torch.sum(loss1_bg[:numNeg_region]) / numNeg_region.to(torch.float32)
-    loss2_fg = criterion(score_link[np.where(labels_affinity > 0.1)], labels_affinity[np.where(labels_affinity > 0.1)])
-    loss2_fg = loss2_fg * sc_map[np.where(labels_affinity > 0.1)]
+    loss2_fg = criterion(score_link[np.where(_labels_affinity > 0.1)], labels_affinity[np.where(_labels_affinity > 0.1)])
+    loss2_fg = loss2_fg * sc_map[np.where(_labels_affinity > 0.1)]
     loss2_fg = torch.sum(loss2_fg) / numPos_affinity.to(torch.float32)
-    loss2_bg = criterion(score_link[np.where(labels_affinity <= 0.1)], labels_affinity[np.where(labels_affinity <= 0.1)])
-    loss2_bg = loss2_bg * sc_map[np.where(labels_affinity <= 0.1)]
+    loss2_bg = criterion(score_link[np.where(_labels_affinity <= 0.1)], labels_affinity[np.where(_labels_affinity <= 0.1)])
+    loss2_bg = loss2_bg * sc_map[np.where(_labels_affinity <= 0.1)]
     loss2_bg, _ = loss2_bg.sort(descending=True)
     loss2_bg = torch.sum(loss2_bg[:numNeg_affinity]) / numNeg_affinity.to(torch.float32)
     #联合loss
