@@ -90,7 +90,7 @@ class TextDetectDataset(torch.utils.data.Dataset):
         plt.show()
 
     # label应为高斯热力图
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, debug=False):
         fn = self.image_names[idx]
         image = Image.open(os.path.join(self.images_dir, fn))
         
@@ -98,10 +98,11 @@ class TextDetectDataset(torch.utils.data.Dataset):
         char_boxes, chars = get_text_detect_char_box(os.path.join(self.labels_dir, label_name))
     
         char_boxes_list, affinity_boxes_list = get_affinity_boxes_list(char_boxes)
-        #print ("char_boxes_list: ",char_boxes_list)
-        #self.draw_box(image, char_boxes_list, color="red")
-        #print ("affinity_boxes_list: ",affinity_boxes_list)
-        #self.draw_box(image, affinity_boxes_list, color="blue")
+        if debug:
+            print ("char_boxes_list: ",char_boxes_list)
+            self.draw_box(image, char_boxes_list, color="red")
+            print ("affinity_boxes_list: ",affinity_boxes_list)
+            self.draw_box(image, affinity_boxes_list, color="blue")
 
         width, height = image.size
         heat_map_size = (height, width)
@@ -114,11 +115,13 @@ class TextDetectDataset(torch.utils.data.Dataset):
         sc_map = Image.fromarray(np.uint8(sc_map))
         if self.image_transform is not None:
             image = self.image_transform(image)
+            #print (image.shape)
 
         if self.label_transform is not None:
             region_scores = self.label_transform(region_scores)
             affinity_scores = self.label_transform(affinity_scores)
             sc_map = self.label_transform(sc_map)
+            #print (region_scores.shape)
         return image, region_scores, affinity_scores, sc_map
 
     #获取图片的高斯热力图

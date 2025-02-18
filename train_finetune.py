@@ -28,7 +28,8 @@ parser.add_argument('--gt_path', default='/media/brooklyn/EEEEE142EEE10425/Synth
 parser.add_argument('--synth_dir', default='/media/brooklyn/EEEEE142EEE10425/SynthText', type=str, help='SynthText image dir')
 parser.add_argument('--ic13_root', default='/home/brooklyn/ICDAR/icdar2013', type=str, help='icdar2013 data dir')
 parser.add_argument('--ic17_root', default='data/ICDAR2017', type=str, help='icdar2017 data dir')
-parser.add_argument('--td_root', default='data/text_detect', type=str, help='Text detect data dir')
+parser.add_argument('--td_root', default='data/char_lvl', type=str, help='Text detect data dir')
+parser.add_argument('--data_type', default='td', type=str, help='data type (td, ic17)')
 parser.add_argument('--label_size', default=96, type=int, help='target label size')
 parser.add_argument('--batch_size', default=16, type=int, help='training data batch size')
 parser.add_argument('--test_batch_size', default=16, type=int, help='training data batch size')
@@ -173,7 +174,8 @@ if __name__ == "__main__":
               lr=lr,test_interval=test_interval,
               test_model_path=pretrained_model,
               model_save_prefix =  model_save_prefix,
-              device=device)
+              device=device,
+              type=args.data_type)
     except KeyboardInterrupt:
         torch.save(net.state_dict(), 'INTERRUPTED.pth')
         print('Saved interrupt')
