@@ -11,7 +11,7 @@ import torch.backends.cudnn as cudnn
 import os
 from net.craft import CRAFT
 import sys
-from eval import copyStateDict, eval_net_finetune
+from eval import copyStateDict, eval_net_finetune, eval_net
 from utils.cal_loss import cal_fakeData_loss, cal_synthText_loss
 from dataset.synthDataset import SynthDataset
 from dataset.icdar2013_dataset import Icdar2013Dataset
@@ -78,14 +78,17 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         val_loader = torch.utils.data.DataLoader(ic17_data, batch_size=test_batch_size, shuffle=False)
         print('len train data:', len(ic17_data))
     elif type == "td":
-        td_data = TextDetectDataset(image_transform=image_transform,
+        td_train_data = TextDetectDataset(image_transform=image_transform,
                                     label_transform=label_transform,
                                     images_dir=os.path.join(args.td_root, 'train_images'),
                                     labels_dir=os.path.join(args.td_root, 'train_labels'))
-        td_length = len(td_data)
-        train_loader = torch.utils.data.DataLoader(td_data, batch_size, shuffle=True)
-        val_loader = torch.utils.data.DataLoader(td_data, batch_size=test_batch_size, shuffle=False)
-        print('len train data:', len(td_data))
+        td_val_data = TextDetectDataset(image_transform=image_transform,
+                                    label_transform=label_transform,
+                                    images_dir=os.path.join(args.td_root, 'valid_images'),
+                                    labels_dir=os.path.join(args.td_root, 'valid_labels'))
+        train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
+        print('##### Data Number train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
 
     steps_per_epoch = 100
 
@@ -137,7 +140,8 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                 print('i = ', i,': loss = ', loss.item())
 
             if i != 0 and i % test_interval == 0:
-                test_loss = eval_net_finetune(net, val_loader, criterion, device)
+                #test_loss = eval_net_finetune(net, val_loader, criterion, device)
+                test_loss = eval_net(net, val_loader, criterion, device)
                 print('test: i = ', i, 'test_loss = ', test_loss, 'lr = ', lr)
                 if save_weight:
                     torch.save(net.state_dict(), model_save_prefix + 'epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
