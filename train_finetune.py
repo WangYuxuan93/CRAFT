@@ -18,7 +18,7 @@ from dataset.icdar2013_dataset import Icdar2013Dataset
 from dataset.icdar2017_dataset import Icdar2017Dataset
 from dataset.textdetect_dataset import TextDetectDataset
 import argparse
-
+import logging
 
 
 def str2bool(v):
@@ -38,8 +38,20 @@ parser.add_argument('--pretrained_model', default='model/craft_mlt_25k.pth', typ
 parser.add_argument('--lr', default=3e-5, type=float, help='initial learning rate')
 parser.add_argument('--epochs', default=20, type=int, help='training epochs')
 parser.add_argument('--test_interval', default=40, type=int, help='test interval')
+parser.add_argument('--log_file', default='training.log', type=str, help='Output training log')
 args = parser.parse_args()
 
+
+
+# 设置日志配置
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # 输出到控制台
+        logging.FileHandler(args.log_file)  # 输出到文件
+    ]
+)
 
 image_transform = transforms.Compose([
     transforms.Resize((args.label_size*2,args.label_size*2)),
@@ -51,9 +63,10 @@ label_transform = transforms.Compose([
 ])
 
 def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, model_save_prefix, save_weight=True, device="cpu",type="td"):
-    
-    print ("cuda:", args.cuda)
-    print ("device:", device)
+    logging.info("cuda: {}".format(args.cuda))
+    logging.info("device: {}".format(device))
+    #print ("cuda:", args.cuda)
+    #print ("device:", device)
     
     if type == "ic13":
         ic13_data = Icdar2013Dataset(cuda=args.cuda,
@@ -88,7 +101,8 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                                     labels_dir=os.path.join(args.td_root, 'valid_labels'))
         train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True)
         val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
-        print('##### Data Number train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
+        #print('##### Data Number train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
+        logging.info('##### Data Number train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
 
     steps_per_epoch = 100
 
@@ -137,12 +151,14 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
             loss.backward()  #计算梯度
             optimizer.step() #更新权重
             if i % 10 == 0:
-                print('i = ', i,': loss = ', loss.item())
+                #print('i = ', i,': loss = ', loss.item())
+                logging.info(f'i = {i}: loss = {loss.item()}')
 
             if i != 0 and i % test_interval == 0:
                 #test_loss = eval_net_finetune(net, val_loader, criterion, device)
                 test_loss = eval_net(net, val_loader, criterion, device)
-                print('test: i = ', i, 'test_loss = ', test_loss, 'lr = ', lr)
+                #print('test: i = ', i, 'test_loss = ', test_loss, 'lr = ', lr)
+                logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {lr}')
                 if save_weight:
                     torch.save(net.state_dict(), model_save_prefix + 'epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
 
