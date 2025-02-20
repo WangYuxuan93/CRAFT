@@ -65,6 +65,7 @@ label_transform = transforms.Compose([
 def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, model_save_prefix, save_weight=True, device="cpu",type="td"):
     logging.info("cuda: {}".format(args.cuda))
     logging.info("device: {}".format(device))
+    logging.info(f"Number of available GPUs: {torch.cuda.device_count()}")
     #print ("cuda:", args.cuda)
     #print ("device:", device)
     
