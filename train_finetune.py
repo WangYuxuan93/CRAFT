@@ -24,8 +24,8 @@ import logging
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
 parser = argparse.ArgumentParser(description='CRAFT Train Fine-Tuning')
-parser.add_argument('--gt_path', default='/media/brooklyn/EEEEE142EEE10425/SynthText/gt.mat', type=str, help='SynthText gt.mat')
-parser.add_argument('--synth_dir', default='/media/brooklyn/EEEEE142EEE10425/SynthText', type=str, help='SynthText image dir')
+parser.add_argument('--gt_path', default='H:/Dataset/SynthText/SynthText/gt.mat', type=str, help='SynthText gt.mat')
+parser.add_argument('--synth_dir', default='H:/Dataset/SynthText/SynthText', type=str, help='SynthText image dir')
 parser.add_argument('--ic13_root', default='/home/brooklyn/ICDAR/icdar2013', type=str, help='icdar2013 data dir')
 parser.add_argument('--ic17_root', default='data/ICDAR2017', type=str, help='icdar2017 data dir')
 parser.add_argument('--td_root', default='data/char_lvl', type=str, help='Text detect data dir')
@@ -70,7 +70,15 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
     #print ("cuda:", args.cuda)
     #print ("device:", device)
     
-    if type == "ic13":
+    if type == "synth":
+        synth_data = SynthDataset(image_transform=image_transform,
+                              label_transform=label_transform,
+                              file_path=args.gt_path,
+                              image_dir=args.synth_dir)
+        train_loader = torch.utils.data.DataLoader(synth_data, batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(synth_data, batch_size=test_batch_size, shuffle=False)
+        print('len train data:', len(synth_data))
+    elif type == "ic13":
         ic13_data = Icdar2013Dataset(cuda=args.cuda,
                                     image_transform=image_transform,
                                     label_transform=label_transform,
@@ -146,11 +154,14 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
             score_link = y[:, :, :, 1]
             sc_map = torch.squeeze(sc_map, 1)
             #强弱数据集分别计算损失
-            if sc_map.size() == labels_region.size():
+            #if sc_map.size() == labels_region.size():
+            if type in ["ic13", "ic17"]:
                 loss = cal_fakeData_loss(criterion, score_text, score_link, labels_region, labels_affinity, sc_map,
                                          device)
+                #print ("fake loss")
             else:
                 loss = cal_synthText_loss(criterion, score_text, score_link, labels_region, labels_affinity, device)
+                #print ("synth loss")
 
             #back propagation
             optimizer.zero_grad()  #梯度清零

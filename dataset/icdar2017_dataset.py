@@ -95,15 +95,16 @@ class Icdar2017Dataset(torch.utils.data.Dataset):
         plt.show()
 
     # label应为高斯热力图
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, debug=True):
         fn = self.image_names[idx]
         image = load_image(os.path.join(self.images_dir, fn))
         label_name = self.label_names[idx]
         word_boxes, words = get_icdar2017_wordsList(os.path.join(self.labels_dir, label_name))
-        #self.draw_box(image, word_boxes)
         char_boxes_list, affinity_boxes_list, confidence_list = self.get_affinity_boxes_list(image, word_boxes, words)
-        #self.draw_box(image, char_boxes_list, color="red")
-        #self.draw_box(image, affinity_boxes_list, color="blue")
+        if debug:
+            self.draw_box(image, word_boxes, color="yellow")
+            self.draw_box(image, char_boxes_list, color="red")
+            self.draw_box(image, affinity_boxes_list, color="blue")
         height, width = image.shape[:2] #opencv方式
         heat_map_size = (height, width)
         #get pixel-wise confidence map

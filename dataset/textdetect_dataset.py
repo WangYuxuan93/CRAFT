@@ -6,6 +6,7 @@ from utils.img_util import img_normalize, load_image
 from utils.box_util import cal_affinity_boxes
 from utils.gaussian import GaussianGenerator
 from converts.synthText_convert import *
+import matplotlib.pyplot as plt
 
 def load_text_detect(images_path, labels_path):
     image_names = os.listdir(images_path)
@@ -82,12 +83,51 @@ class TextDetectDataset(torch.utils.data.Dataset):
             bottom_left = tuple(box[3])
             
             # 绘制矩形框
-            draw.line([top_left, top_right, bottom_right, bottom_left, top_left], fill=color, width=2)
+            draw.line([top_left, top_right, bottom_right, bottom_left, top_left], fill=color, width=1)
 
         # 显示绘制后的图片
         plt.imshow(image)
         plt.axis('off')  # 不显示坐标轴
         plt.show()
+    
+    def apply_colormap(self, heatmap):
+        """
+        将灰度热力图应用颜色映射，转换为彩色热力图
+        :param heatmap: 输入的灰度热力图（numpy数组）
+        :return: 彩色热力图（RGBA格式）
+        """
+        # 使用matplotlib的jet颜色映射
+        return plt.cm.jet(heatmap)  # jet是一个常用的颜色映射
+
+    def overlay_heatmap(self, image, heatmap, alpha=0.5):
+        """
+        将热力图叠加到图像上，并将热力图变为彩色。
+
+        Parameters:
+        - image (PIL.Image): 原图像
+        - heatmap (PIL.Image): 高斯热力图或亲和力热力图
+        - alpha (float): 热力图的透明度，0.0表示完全透明，1.0表示完全不透明
+
+        Returns:
+        - result_image (PIL.Image): 叠加后的图像
+        """
+        # 确保 heatmap 是 numpy 数组格式，用于颜色映射
+        if isinstance(heatmap, Image.Image):
+            heatmap = np.array(heatmap)  # 如果 heatmap 是 PIL.Image 格式，则转换为 numpy 数组
+        
+        # 将热力图转换为彩色图像
+        heatmap_rgb = self.apply_colormap(heatmap)  # 将灰度热力图转换为彩色热力图
+        
+        # 将彩色热力图（RGBA格式）转换为 numpy 数组
+        heatmap_rgb_array = (heatmap_rgb[:, :, :3] * 255).astype(np.uint8)  # 丢弃 alpha 通道并缩放到 [0, 255]
+        
+        # 将 numpy 数组转换回 PIL.Image 对象
+        heatmap_rgb = Image.fromarray(heatmap_rgb_array)
+        
+        # 叠加热力图到原图
+        result_image = Image.blend(image.convert("RGB"), heatmap_rgb, alpha)
+        
+        result_image.show()  # 显示最终结果图像
 
     # label应为高斯热力图
     def __getitem__(self, idx, debug=False):
@@ -99,9 +139,9 @@ class TextDetectDataset(torch.utils.data.Dataset):
     
         char_boxes_list, affinity_boxes_list = get_affinity_boxes_list(char_boxes)
         if debug:
-            print ("char_boxes_list: ",char_boxes_list)
+            #print ("char_boxes_list: ",char_boxes_list)
             self.draw_box(image, char_boxes_list, color="red")
-            print ("affinity_boxes_list: ",affinity_boxes_list)
+            #print ("affinity_boxes_list: ",affinity_boxes_list)
             self.draw_box(image, affinity_boxes_list, color="blue")
 
         width, height = image.size
@@ -113,6 +153,10 @@ class TextDetectDataset(torch.utils.data.Dataset):
         region_scores = Image.fromarray(np.uint8(region_scores))
         affinity_scores = Image.fromarray(np.uint8(affinity_scores))
         sc_map = Image.fromarray(np.uint8(sc_map))
+
+        #self.draw_box(image, char_boxes_list, color="red")
+        #self.overlay_heatmap(image, region_scores, alpha=0.5)
+
         if self.image_transform is not None:
             image = self.image_transform(image)
             #print (image.shape)
@@ -122,6 +166,8 @@ class TextDetectDataset(torch.utils.data.Dataset):
             affinity_scores = self.label_transform(affinity_scores)
             sc_map = self.label_transform(sc_map)
             #print (region_scores.shape)
+        
+
         return image, region_scores, affinity_scores, sc_map
 
     #获取图片的高斯热力图
