@@ -36,6 +36,8 @@ parser.add_argument('--mag_ratio', default=1.5, type=float, help='image magnific
 parser.add_argument('--show_time', default=False, action='store_true', help='show processing time')
 parser.add_argument('--test_folder', default='/home/brooklyn/ICDAR/icdar2013/test_images/', type=str, help='folder path to input images')
 parser.add_argument('--result_folder', default='./result/', type=str, help='folder path to save result images')
+parser.add_argument('--output_folder', default='./result/pred_labels', type=str, help='folder path to save prediction file')
+parser.add_argument('--only_pred_file', default=False, action='store_true', help='Only output prediction file to output folder')
 args = parser.parse_args()
 
 
@@ -88,13 +90,14 @@ def test_net(net, image, text_threshold, link_threshold, low_text, cuda):
     return boxes, ret_score_text
 
 
-def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, refine_net=None):
+def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, refine_net=None, debug=False):
     t0 = time.time()
 
     # resize
     img_resized, target_ratio, size_heatmap = imgproc.resize_aspect_ratio(image, args.canvas_size, interpolation=cv2.INTER_LINEAR, mag_ratio=args.mag_ratio)
     ratio_h = ratio_w = 1 / target_ratio
-    print ("img_resized:", img_resized.shape)
+    if debug:
+        print ("img_resized:", img_resized.shape)
 
     # preprocessing
     x = imgproc.normalizeMeanVariance(img_resized)
@@ -103,7 +106,8 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, refi
     if cuda:
         x = x.cuda()
 
-    print ("x:", x.shape)
+    if debug:
+        print ("x:", x.shape)
     # forward pass
     with torch.no_grad():
         y, feature = net(x)
@@ -123,7 +127,8 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, refi
 
     # Post-processing
     boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
-    print ("score_text:", score_text.shape)
+    if debug:
+        print ("score_text:", score_text.shape)
     # coordinate adjustment
     boxes = craft_utils.adjustResultCoordinates(boxes, ratio_w, ratio_h)
 
@@ -138,7 +143,7 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, refi
 
     return boxes, ret_score_text, score_text, target_ratio, img_resized
 
-def resize_mask_to_input_size(mask, ratio, image, image_resized):
+def resize_mask_to_input_size(mask, ratio, image, image_resized, debug=False):
     """
     根据给定的 ratio 放大 mask，并去除 padding 部分，使其与输入图像尺寸匹配。
 
@@ -152,13 +157,15 @@ def resize_mask_to_input_size(mask, ratio, image, image_resized):
     - resized_mask: 调整为与输入图像相同尺寸的 mask。
     """
     target_h32, target_w32 = image_resized.shape[:2]
-    print ("target 32:", target_h32, target_w32)
+    if debug:
+        print ("target 32:", target_h32, target_w32)
 
     resized_mask32 = cv2.resize(mask, (target_w32, target_h32), interpolation=cv2.INTER_LINEAR)
     # 使用 ratio 的倒数来计算 mask 应该被放大的尺寸
     img_height, img_weight = image.shape[:2]
     target_h, target_w = int(img_height * ratio), int(img_weight * ratio)
-    print ("target:", target_h, target_w)
+    if debug:
+        print ("target:", target_h, target_w)
 
     resized_mask_clean = resized_mask32[:target_h, :target_w]
 
@@ -166,7 +173,8 @@ def resize_mask_to_input_size(mask, ratio, image, image_resized):
     resized_mask = cv2.resize(resized_mask_clean, (img_weight, img_height), interpolation=cv2.INTER_LINEAR)
 
     #print (target_h, target_w, target_mask_w, target_mask_h, ratio)
-    print (resized_mask.shape)
+    if debug:
+        print (resized_mask.shape)
 
     # 去除 padding 部分，确保 mask 尺寸与输入图像一致
     #resized_mask = resized_mask[:target_h, :target_w]
@@ -266,6 +274,7 @@ def overlay_mask_and_boxes(input_image, mask, boxes, alpha=0.5):
     return overlay_image_with_boxes
 
 if __name__ == '__main__':
+    print (args.only_pred_file)
     # load net
     net = CRAFT()     # initialize
     print('Loading weights from checkpoint (' + args.trained_model + ')')
@@ -279,11 +288,11 @@ if __name__ == '__main__':
 
     net.eval()
     t = time.time()
-    print("net.eval")
-    print(image_list)
+    #print("net.eval")
+    #print(image_list)
     # load data
     for k, image_path in enumerate(image_list):
-        print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
+        #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
         image = imgproc.loadImage(image_path)
 
         #bboxes, polys, score_text = test_net(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.poly, refine_net)
@@ -294,7 +303,8 @@ if __name__ == '__main__':
 
         real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
         real_mask_file = result_folder + "/" + filename + '_mask.png'
-        cv2.imwrite(real_mask_file, real_mask)
+        if not args.only_pred_file:
+            cv2.imwrite(real_mask_file, real_mask)
 
         #overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
         #overlay_file = result_folder + "/overlay_" + filename + '_mask.jpg'
@@ -302,15 +312,18 @@ if __name__ == '__main__':
 
         heatmap_overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
         heatmap_overlay_file = result_folder + "/" + filename + '_mask_overlay.jpg'
-        cv2.imwrite(heatmap_overlay_file, heatmap_overlay_image)
+        if not args.only_pred_file:
+            cv2.imwrite(heatmap_overlay_file, heatmap_overlay_image)
 
         mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
-        cv2.imwrite(mask_file, ret_score_text)
+        if not args.only_pred_file:
+            cv2.imwrite(mask_file, ret_score_text)
 
         mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
         mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
-        cv2.imwrite(mask_and_box_image_file, mask_and_box_image)
+        if not args.only_pred_file:
+            cv2.imwrite(mask_and_box_image_file, mask_and_box_image)
 
-        file_utils.saveResult(image_path, image[:,:,::-1], bboxes, dirname=result_folder)
+        file_utils.saveResult(image_path, image[:,:,::-1], bboxes, dirname=args.output_folder)
 
     print("elapsed time : {}s".format(time.time() - t))

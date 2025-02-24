@@ -39,6 +39,7 @@ parser.add_argument('--lr', default=3e-5, type=float, help='initial learning rat
 parser.add_argument('--epochs', default=20, type=int, help='training epochs')
 parser.add_argument('--test_interval', default=40, type=int, help='test interval')
 parser.add_argument('--log_file', default='training.log', type=str, help='Output training log')
+parser.add_argument('--output_model_dir', default='finetune/', type=str, help='Output model directory')
 args = parser.parse_args()
 
 
@@ -62,7 +63,7 @@ label_transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, model_save_prefix, save_weight=True, device="cpu",type="td"):
+def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, output_model_dir, save_weight=True, device="cpu",type="td"):
     logging.info("cuda: {}".format(args.cuda))
     logging.info("device: {}".format(device))
     logging.info(f"Number of available GPUs: {torch.cuda.device_count()}")
@@ -81,16 +82,21 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         val_loader = torch.utils.data.DataLoader(ic13_data, batch_size=test_batch_size, shuffle=False)
         print('len train data:', len(ic13_data))
     elif type == "ic17":
-        ic17_data = Icdar2017Dataset(cuda=args.cuda,
+        ic17_train_data = Icdar2017Dataset(cuda=args.cuda,
                                     image_transform=image_transform,
                                     label_transform=label_transform,
                                     model_path=test_model_path,
                                     images_dir=os.path.join(args.ic17_root, 'train_images'),
                                     labels_dir=os.path.join(args.ic17_root, 'train_labels'))
-        ic17_length = len(ic17_data)
-        train_loader = torch.utils.data.DataLoader(ic17_data, batch_size, shuffle=True)
-        val_loader = torch.utils.data.DataLoader(ic17_data, batch_size=test_batch_size, shuffle=False)
-        print('len train data:', len(ic17_data))
+        ic17_val_data = Icdar2017Dataset(cuda=args.cuda,
+                                    image_transform=image_transform,
+                                    label_transform=label_transform,
+                                    model_path=test_model_path,
+                                    images_dir=os.path.join(args.ic17_root, 'valid_images'),
+                                    labels_dir=os.path.join(args.ic17_root, 'valid_labels'))
+        train_loader = torch.utils.data.DataLoader(ic17_train_data, batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(ic17_val_data, batch_size=test_batch_size, shuffle=False)
+        logging.info('##### Data Type: ICDAR17, Data Number: train: {}, valid: {}'.format(len(ic17_train_data), len(ic17_val_data)))
     elif type == "td":
         td_train_data = TextDetectDataset(image_transform=image_transform,
                                     label_transform=label_transform,
@@ -102,8 +108,7 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                                     labels_dir=os.path.join(args.td_root, 'valid_labels'))
         train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True)
         val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
-        #print('##### Data Number train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
-        logging.info('##### Data Number train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
+        logging.info('##### Data Type: Text Detection, Data Number: train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
 
     steps_per_epoch = 100
 
@@ -158,10 +163,10 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
             if i != 0 and i % test_interval == 0:
                 #test_loss = eval_net_finetune(net, val_loader, criterion, device)
                 test_loss = eval_net(net, val_loader, criterion, device)
-                #print('test: i = ', i, 'test_loss = ', test_loss, 'lr = ', lr)
-                logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {lr}')
+                model_save_path = os.path.join(output_model_dir, 'finetuned_epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
+                logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {lr}, Saving model to {model_save_path}')
                 if save_weight:
-                    torch.save(net.state_dict(), model_save_prefix + 'epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
+                    torch.save(net.state_dict(), model_save_path)
 
 if __name__ == "__main__":
 
@@ -186,7 +191,10 @@ if __name__ == "__main__":
 
     net = net.to(device)
     net.train()
-    model_save_prefix = 'finetune/craft_finetune_'
+    #model_save_prefix = 'finetune/craft_finetune_'
+    #model_save_prefix = os.path.join(args.output_model_dir, 'craft_finetune_')
+    if not os.path.exists(args.output_model_dir):
+        os.makedirs(args.output_model_dir)
     try:
         train(net=net,
               epochs=epochs,
@@ -194,7 +202,7 @@ if __name__ == "__main__":
               test_batch_size=test_batch_size,
               lr=lr,test_interval=test_interval,
               test_model_path=pretrained_model,
-              model_save_prefix =  model_save_prefix,
+              output_model_dir=args.output_model_dir,
               device=device,
               type=args.data_type)
     except KeyboardInterrupt:

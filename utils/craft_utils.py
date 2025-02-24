@@ -10,7 +10,7 @@ import math
 
 
 def getCharBoxes_core(textmap, text_threshold, low_text):
-    print ("text_threshold:", text_threshold)
+    #print ("text_threshold:", text_threshold)
     # prepare data
     textmap = textmap.copy()
     img_h, img_w = textmap.shape
