@@ -76,8 +76,12 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                               file_path=args.gt_path,
                               image_dir=args.synth_dir)
         train_loader = torch.utils.data.DataLoader(synth_data, batch_size, shuffle=True)
-        val_loader = torch.utils.data.DataLoader(synth_data, batch_size=test_batch_size, shuffle=False)
-        print('len train data:', len(synth_data))
+        td_val_data = TextDetectDataset(image_transform=image_transform,
+                                    label_transform=label_transform,
+                                    images_dir=os.path.join(args.td_root, 'valid_images'),
+                                    labels_dir=os.path.join(args.td_root, 'valid_labels'))
+        val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
+        logging.info('##### Data Type: SynthText, Data Number: train: {}, valid (Text Detection): {}'.format(len(synth_data), len(td_val_data)))
     elif type == "ic13":
         ic13_data = Icdar2013Dataset(cuda=args.cuda,
                                     image_transform=image_transform,
@@ -188,7 +192,7 @@ if __name__ == "__main__":
     test_interval = args.test_interval #测试间隔
     pretrained_model = args.pretrained_model #预训练模型
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
-    net = CRAFT(pretrained=False)  # craft模型
+    net = CRAFT(pretrained=True)  # craft模型
 
     if args.cuda:
         net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
