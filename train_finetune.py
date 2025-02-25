@@ -35,6 +35,7 @@ parser.add_argument('--batch_size', default=16, type=int, help='training data ba
 parser.add_argument('--test_batch_size', default=16, type=int, help='training data batch size')
 parser.add_argument('--cuda', default=False, type=str2bool, help='Use cuda to train model')
 parser.add_argument('--pretrained_model', default='model/craft_mlt_25k.pth', type=str, help='pretrained model path')
+parser.add_argument('--from_scratch', default=False, type=str2bool, help='Train from scratch')
 parser.add_argument('--lr', default=3e-5, type=float, help='initial learning rate')
 parser.add_argument('--epochs', default=20, type=int, help='training epochs')
 parser.add_argument('--test_interval', default=40, type=int, help='test interval')
@@ -67,6 +68,10 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
     logging.info("cuda: {}".format(args.cuda))
     logging.info("device: {}".format(device))
     logging.info(f"Number of available GPUs: {torch.cuda.device_count()}")
+    logging.info('Batch size: train: {}, valid: {}'.format(batch_size, test_batch_size))
+    logging.info("Test interval: {}".format(test_interval))
+    logging.info("Total training epochs: {}".format(epochs))
+    
     #print ("cuda:", args.cuda)
     #print ("device:", device)
     
@@ -82,6 +87,9 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                                     labels_dir=os.path.join(args.td_root, 'valid_labels'))
         val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
         logging.info('##### Data Type: SynthText, Data Number: train: {}, valid (Text Detection): {}'.format(len(synth_data), len(td_val_data)))
+        iters_per_epoch = len(synth_data) // batch_size
+        logging.info('Number of iters per epoch: {}'.format(iters_per_epoch))
+        logging.info('Total iters: {}'.format(iters_per_epoch * epochs))
     elif type == "ic13":
         ic13_data = Icdar2013Dataset(cuda=args.cuda,
                                     image_transform=image_transform,
@@ -194,10 +202,14 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
     net = CRAFT(pretrained=True)  # craft模型
 
-    if args.cuda:
-        net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
+    if args.from_scratch:
+        logging.info(f'Training from scratch')
     else:
-        net.load_state_dict(copyStateDict(torch.load(pretrained_model, map_location='cpu')))
+        logging.info(f'Loading pretrained params from: {pretrained_model}')
+        if args.cuda:
+            net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
+        else:
+            net.load_state_dict(copyStateDict(torch.load(pretrained_model, map_location='cpu')))
 
     if args.cuda:
         net = net.cuda()
