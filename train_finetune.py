@@ -9,8 +9,10 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 import torch.backends.cudnn as cudnn
 import os
+import re
 from net.craft import CRAFT
 import sys
+import glob
 from eval import copyStateDict, eval_net_finetune, eval_net
 from utils.cal_loss import cal_fakeData_loss, cal_synthText_loss
 from dataset.synthDataset import SynthDataset
@@ -64,13 +66,43 @@ label_transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, output_model_dir, save_weight=True, device="cpu",type="td"):
+# Saving function - Save model weights and additional params
+def save_model(epoch, iter_num, model_save_path, lr, optimizer_state_dict, scheduler_state_dict):
+    model_state = {
+        'epoch': epoch,
+        'iteration': iter_num,
+        'model_state_dict': net.state_dict(),
+        'optimizer_state_dict': optimizer_state_dict,
+        'scheduler_state_dict': scheduler_state_dict,
+        'lr': lr,  # Save lr and other hyperparameters
+    }
+    torch.save(model_state, model_save_path)
+    logging.info(f'Model saved at {model_save_path} with lr = {lr}')
+
+# Load function - to load model with saved hyperparameters
+def load_model(model_path, net, optimizer, scheduler, device="cpu"):
+    checkpoint = torch.load(model_path, map_location=device)
+    net.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])  # Load scheduler state
+    epoch = checkpoint['epoch']
+    iteration = checkpoint['iteration']
+    lr = checkpoint['lr']
+    logging.info(f"Loaded model from {model_path}, epoch {epoch}, iteration {iteration}, lr {lr}")
+    return net, optimizer, scheduler, epoch, iteration, lr
+
+
+def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, output_model_dir, save_weight=True, device="cpu",type="td", optimizer=None, scheduler=None, start_epoch=0, start_iter=0):
     logging.info("cuda: {}".format(args.cuda))
     logging.info("device: {}".format(device))
     logging.info(f"Number of available GPUs: {torch.cuda.device_count()}")
     logging.info('Batch size: train: {}, valid: {}'.format(batch_size, test_batch_size))
     logging.info("Test interval: {}".format(test_interval))
     logging.info("Total training epochs: {}".format(epochs))
+    for param_group in optimizer.param_groups:
+        lr = param_group['lr']
+        break  # 如果有多个 param_groups，只取第一个
+    logging.info("Start epoch: {}, start iter: {}, lr: {}".format(start_epoch, start_iter, lr))
     
     #print ("cuda:", args.cuda)
     #print ("device:", device)
@@ -129,8 +161,10 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True)
         val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
         logging.info('##### Data Type: Text Detection, Data Number: train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
-
-    steps_per_epoch = 100
+    
+    if scheduler is None:
+        milestones = [0.5*iters_per_epoch, 1.5*iters_per_epoch]
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
 
     """
     synth_data = SynthDataset(image_transform=image_transform,
@@ -147,11 +181,12 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
 
     
     criterion = nn.MSELoss(reduction='none')
-    optimizer = optim.Adam(net.parameters(), lr)
+    #if optimizer is None:
+    #    optimizer = optim.Adam(net.parameters(), lr)
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         print('epoch = ', epoch)
-        for i, (images, labels_region, labels_affinity, sc_map) in enumerate(train_loader):
+        for i, (images, labels_region, labels_affinity, sc_map) in enumerate(train_loader, start=start_iter):
 
             images = images.to(device)
             labels_region = labels_region.to(device)
@@ -179,6 +214,7 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
             optimizer.zero_grad()  #梯度清零
             loss.backward()  #计算梯度
             optimizer.step() #更新权重
+            scheduler.step()
             if i % 10 == 0:
                 #print('i = ', i,': loss = ', loss.item())
                 logging.info(f'i = {i}: loss = {loss.item()}')
@@ -187,9 +223,50 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                 #test_loss = eval_net_finetune(net, val_loader, criterion, device)
                 test_loss = eval_net(net, val_loader, criterion, device)
                 model_save_path = os.path.join(output_model_dir, 'finetuned_epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
+                for param_group in optimizer.param_groups:
+                    lr = param_group['lr']
+                    break  # 如果有多个 param_groups，只取第一个
                 logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {lr}, Saving model to {model_save_path}')
                 if save_weight:
-                    torch.save(net.state_dict(), model_save_path)
+                    #torch.save(net.state_dict(), model_save_path)
+                    save_model(epoch, i, model_save_path, lr, optimizer.state_dict(), scheduler.state_dict())
+
+
+def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
+    # 获取output_model_dir下所有的模型文件（.pth）
+    #model_files = glob.glob(os.path.join(output_model_dir, "finetuned_epoch_*_iter_*.pth"))
+    model_files = glob.glob(os.path.join(output_model_dir, "*.pth"))
+    print ("model_files:", model_files)
+    if not model_files:
+        return net, optimizer, None, 0, 0, None  # 如果没有模型文件，返回初始状态
+    
+    # 提取epoch和iter信息，按epoch和iter排序
+    def extract_epoch_iter(model_path):
+        match = re.search(r'finetuned_epoch_(\d+)_iter(\d+)', model_path)
+        if match:
+            epoch = int(match.group(1))
+            iter_num = int(match.group(2))
+            return epoch, iter_num
+        return 0, 0  # 如果无法提取epoch和iter，默认返回0
+    
+    # 按照(epoch, iter)元组排序，选择最新的模型
+    latest_model = max(model_files, key=lambda x: extract_epoch_iter(x))
+
+    logging.info(f"Loading the latest model from: {latest_model}")
+    
+    # 加载模型和optimizer状态
+    checkpoint = torch.load(latest_model, map_location=device)
+    net.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    if scheduler is None:
+        milestones = [100]
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
+    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    epoch = checkpoint['epoch']
+    iter_num = checkpoint['iteration'] + 1 # should start from the next iter
+    lr = checkpoint['lr']  # Assuming you saved lr in the checkpoint
+    
+    return net, optimizer, scheduler, epoch, iter_num, lr
 
 if __name__ == "__main__":
 
@@ -202,14 +279,27 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
     net = CRAFT(pretrained=True)  # craft模型
 
+    optimizer = optim.Adam(net.parameters(), lr)
+    scheduler = None
     if args.from_scratch:
-        logging.info(f'Training from scratch')
+        # Check if there are saved models in the output directory
+        if os.path.exists(args.output_model_dir):
+            net, optimizer, scheduler, epoch, iter_num, lr = load_latest_model(args.output_model_dir, net, optimizer, scheduler, device)
+            logging.info(f'Resuming from epoch {epoch}, iteration {iter_num}, lr {lr}')
+        else:
+            logging.info(f'Training from scratch')
+            epoch, iter_num = 0, 0  # Start from the beginning
     else:
         logging.info(f'Loading pretrained params from: {pretrained_model}')
         if args.cuda:
             net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
         else:
             net.load_state_dict(copyStateDict(torch.load(pretrained_model, map_location='cpu')))
+        #if args.cuda:
+        #    net, optimizer, scheduler, epoch, iter_num, lr = load_model(pretrained_model, net, optimizer, scheduler, device)
+        #else:
+        #    net, optimizer, scheduler, epoch, iter_num, lr = load_model(pretrained_model, net, optimizer, scheduler, device='cpu')
+
 
     if args.cuda:
         net = net.cuda()
@@ -231,7 +321,11 @@ if __name__ == "__main__":
               test_model_path=pretrained_model,
               output_model_dir=args.output_model_dir,
               device=device,
-              type=args.data_type)
+              type=args.data_type,
+              optimizer=optimizer,
+              scheduler=scheduler,
+              start_epoch=epoch,  # Start from the loaded epoch
+              start_iter=iter_num)  # Start from the loaded iteration
     except KeyboardInterrupt:
         torch.save(net.state_dict(), 'INTERRUPTED.pth')
         print('Saved interrupt')

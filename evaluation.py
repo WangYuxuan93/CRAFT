@@ -3,6 +3,8 @@ import numpy as np
 from shapely.geometry import Polygon
 from scipy.optimize import linear_sum_assignment
 import argparse
+from skimage.draw import polygon
+import matplotlib.pyplot as plt
 
 def calc_iou(gt_poly, pred_poly):
     """计算两多边形之间的IoU"""
@@ -62,6 +64,92 @@ def read_folder(folder_path, is_gold=True):
             data_dict[filename] = read_txt_file(file_path, is_gold)
     return data_dict
 
+def calc_mask_iou(gt_polygons, pred_polygons, debug=False):
+    """
+    计算 mask 级别的 IoU。
+    根据地面真值和预测框的多边形坐标计算图像大小，并生成 mask 进行 IoU 计算。
+    
+    参数：
+    - gt_polygons: 地面真值的多边形列表
+    - pred_polygons: 预测框的多边形列表
+    
+    返回：
+    - mask_ious: 计算出来的每对多边形的 IoU
+    - image_shape: 图像的形状
+    """
+    # 自动推断图像的尺寸
+    def calculate_image_shape(gt_polygons, pred_polygons):
+        """
+        自动计算图像的宽度和高度（image shape）。
+        根据所有地面真值和预测框的坐标，找出最大和最小坐标来推断图像大小。
+
+        参数:
+        - gt_polygons: 地面真值的多边形列表
+        - pred_polygons: 预测框的多边形列表
+        
+        返回：
+        - image_shape: (height, width) 图像的形状
+        """
+        max_x, max_y = float('-inf'), float('-inf')
+
+        # 获取地面真值和预测框的坐标范围
+        for poly in gt_polygons:
+            max_x = max(max_x, *[coord[0] for coord in poly.exterior.coords])
+            max_y = max(max_y, *[coord[1] for coord in poly.exterior.coords])
+
+        for poly in pred_polygons:
+            max_x = max(max_x, *[coord[0] for coord in poly.exterior.coords])
+            max_y = max(max_y, *[coord[1] for coord in poly.exterior.coords])
+
+        # 计算图像大小，假设至少包含所有框
+        image_width = int(max_x) + 1
+        image_height = int(max_y) + 1
+
+        return (image_width, image_height)
+
+    # 计算当前图像的尺寸
+    image_shape = calculate_image_shape(gt_polygons, pred_polygons)
+
+    # 创建空白的图像来表示 mask
+    # 这里因为np初始化的时候0维是x轴，所以后面画的时候从横的变成竖的，但结果不影响
+    gt_mask = np.zeros(image_shape, dtype=np.uint8)
+    pred_mask = np.zeros(image_shape, dtype=np.uint8)
+    #print ("image_shape:", image_shape)
+    #print ("gt_polygons:", gt_polygons)
+    #print ("pred_polygons:", pred_polygons)
+    # 填充地面真值的 mask
+    for poly in gt_polygons:
+        if poly.is_valid:  # 如果是有效的多边形
+            rr, cc = polygon(*zip(*list(poly.exterior.coords)))
+            #print (rr, cc)
+            rr, cc = rr[rr <= image_shape[0]], cc[cc <= image_shape[1]]  # 防止超出边界
+            gt_mask[rr, cc] = 1
+    
+    # 填充预测框的 mask
+    for poly in pred_polygons:
+        if poly.is_valid:
+            rr, cc = polygon(*zip(*list(poly.exterior.coords)))
+            rr, cc = rr[rr <= image_shape[0]], cc[cc <= image_shape[1]]  # 防止超出边界
+            pred_mask[rr, cc] = 1
+
+    # 计算 mask 的交并比 (IoU)
+    intersection = np.logical_and(gt_mask, pred_mask).sum()
+    union = np.logical_or(gt_mask, pred_mask).sum()
+
+    if debug:
+        # 可视化 gt_mask 和 pred_mask
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        axes[0].imshow(gt_mask.T, cmap='gray')
+        axes[0].set_title('Ground Truth Mask')
+        axes[0].axis('off')
+
+        axes[1].imshow(pred_mask.T, cmap='gray')
+        axes[1].set_title('Prediction Mask')
+        axes[1].axis('off')
+        plt.show()
+
+    return intersection / float(union) if union > 0 else 0.0
+
 def evaluate_text_detection(gold_folder: str, pred_folder: str, iou_threshold: float = 0.5, debug=False) -> dict:
     """
     计算文本检测的IoU, Precision, Recall 和 F1值。
@@ -103,6 +191,7 @@ def evaluate_text_detection(gold_folder: str, pred_folder: str, iou_threshold: f
         gt_polygons = [Polygon([coords[:2], coords[2:4], coords[4:6], coords[6:8]]) for coords in gt_data]
         pred_polygons = [Polygon([coords[:2], coords[2:4], coords[4:6], coords[6:8]]) for coords in pred_data_coords]
 
+        """
         # 计算每对地面真值和预测框的IoU
         ious = np.zeros((len(gt_polygons), len(pred_polygons)), dtype=np.float64)
         for i, gt_poly in enumerate(gt_polygons):
@@ -144,29 +233,24 @@ def evaluate_text_detection(gold_folder: str, pred_folder: str, iou_threshold: f
         # 存储每个图像的评估结果
         if len(matches_ious) > 0:
             ious_list.append(np.mean(matches_ious))
-        precision_list.append(precision)
-        recall_list.append(recall)
-        f1_list.append(f1)
+        """
+
+        mask_iou = calc_mask_iou(gt_polygons, pred_polygons)
+        ious_list.append(mask_iou)
+        
+        # 计算 Precision, Recall 和 F1 值
+        tp = int(mask_iou >= iou_threshold)  # IoU 大于阈值为真阳性
 
         # 累加整体的TP, FP, FN
         total_tp += tp
-        total_fp += fp
-        total_fn += fn
     
     # 计算整体PRF
-    overall_precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    overall_recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
-    overall_f1 = 2 * (overall_precision * overall_recall) / (overall_precision + overall_recall) if (overall_precision + overall_recall) > 0 else 0.0
+    overall_acc = total_tp / len(gold_data)
 
     # 汇总结果
     result = {
         'Average IoU (per file)': np.mean(ious_list),
-        'Average Precision (per file)': np.mean(precision_list),
-        'Average Recall (per file)': np.mean(recall_list),
-        'Average F1 (per file)': np.mean(f1_list),
-        'Overall Precision': overall_precision,
-        'Overall Recall': overall_recall,
-        'Overall F1': overall_f1
+        'Overall Acc': overall_acc
     }
 
     return result
