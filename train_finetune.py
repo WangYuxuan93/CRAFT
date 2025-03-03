@@ -278,6 +278,7 @@ if __name__ == "__main__":
 
     optimizer = optim.Adam(net.parameters(), lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
+    epoch, iter_num = 0, 0
     if args.from_scratch:
         # Check if there are saved models in the output directory
         if os.path.exists(args.output_model_dir):
@@ -285,7 +286,7 @@ if __name__ == "__main__":
             logging.info(f'Resuming from epoch {epoch}, iteration {iter_num}')
         else:
             logging.info(f'Training from scratch')
-            epoch, iter_num = 0, 0  # Start from the beginning
+            #epoch, iter_num = 0, 0  # Start from the beginning
     else:
         logging.info(f'Loading pretrained params from: {pretrained_model}')
         if args.cuda:
