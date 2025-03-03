@@ -149,6 +149,9 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         train_loader = torch.utils.data.DataLoader(ic17_train_data, batch_size, shuffle=True)
         val_loader = torch.utils.data.DataLoader(ic17_val_data, batch_size=test_batch_size, shuffle=False)
         logging.info('##### Data Type: ICDAR17, Data Number: train: {}, valid: {}'.format(len(ic17_train_data), len(ic17_val_data)))
+        iters_per_epoch = len(ic17_train_data) // batch_size
+        logging.info('Number of iters per epoch: {}'.format(iters_per_epoch))
+        logging.info('Total iters: {}'.format(iters_per_epoch * epochs))
     elif type == "td":
         td_train_data = TextDetectDataset(image_transform=image_transform,
                                     label_transform=label_transform,
@@ -239,7 +242,7 @@ def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
     model_files = glob.glob(os.path.join(output_model_dir, "*.pth"))
     print ("model_files:", model_files)
     if not model_files:
-        return net, optimizer, scheduler, 0, 0, None  # 如果没有模型文件，返回初始状态
+        return net, optimizer, scheduler, 0, 0  # 如果没有模型文件，返回初始状态
     
     # 提取epoch和iter信息，按epoch和iter排序
     def extract_epoch_iter(model_path):
@@ -288,10 +291,14 @@ if __name__ == "__main__":
             logging.info(f'Training from scratch')
             #epoch, iter_num = 0, 0  # Start from the beginning
     else:
-        logging.info(f'Loading pretrained params from: {pretrained_model}')
-        if args.cuda:
+        if os.path.exists(args.output_model_dir):
+            net, optimizer, scheduler, epoch, iter_num = load_latest_model(args.output_model_dir, net, optimizer, scheduler, device)
+            logging.info(f'Resuming from epoch {epoch}, iteration {iter_num}')
+        elif args.cuda:
+            logging.info(f'Loading pretrained params from: {pretrained_model}')
             net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
         else:
+            logging.info(f'Loading pretrained params from: {pretrained_model}')
             net.load_state_dict(copyStateDict(torch.load(pretrained_model, map_location='cpu')))
         #if args.cuda:
         #    net, optimizer, scheduler, epoch, iter_num, lr = load_model(pretrained_model, net, optimizer, scheduler, device)
