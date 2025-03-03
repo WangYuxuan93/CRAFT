@@ -32,13 +32,15 @@ parser.add_argument('--ic13_root', default='/home/brooklyn/ICDAR/icdar2013', typ
 parser.add_argument('--ic17_root', default='data/ICDAR2017', type=str, help='icdar2017 data dir')
 parser.add_argument('--td_root', default='data/char_lvl', type=str, help='Text detect data dir')
 parser.add_argument('--data_type', default='td', type=str, help='data type (td, ic17)')
-parser.add_argument('--label_size', default=96, type=int, help='target label size')
+parser.add_argument('--label_size', default=384, type=int, help='target label size')
 parser.add_argument('--batch_size', default=16, type=int, help='training data batch size')
 parser.add_argument('--test_batch_size', default=16, type=int, help='training data batch size')
 parser.add_argument('--cuda', default=False, type=str2bool, help='Use cuda to train model')
 parser.add_argument('--pretrained_model', default='model/craft_mlt_25k.pth', type=str, help='pretrained model path')
 parser.add_argument('--from_scratch', default=False, type=str2bool, help='Train from scratch')
 parser.add_argument('--lr', default=3e-5, type=float, help='initial learning rate')
+parser.add_argument('--gamma', default=0.8, type=float, help='gamma for learning rate step scheduler')
+parser.add_argument('--step_size', default=10000, type=int, help='decay step size for learning rate step scheduler')
 parser.add_argument('--epochs', default=20, type=int, help='training epochs')
 parser.add_argument('--test_interval', default=40, type=int, help='test interval')
 parser.add_argument('--log_file', default='training.log', type=str, help='Output training log')
@@ -67,17 +69,16 @@ label_transform = transforms.Compose([
 ])
 
 # Saving function - Save model weights and additional params
-def save_model(epoch, iter_num, model_save_path, lr, optimizer_state_dict, scheduler_state_dict):
+def save_model(epoch, iter_num, model_save_path, optimizer_state_dict, scheduler_state_dict):
     model_state = {
         'epoch': epoch,
         'iteration': iter_num,
         'model_state_dict': net.state_dict(),
         'optimizer_state_dict': optimizer_state_dict,
-        'scheduler_state_dict': scheduler_state_dict,
-        'lr': lr,  # Save lr and other hyperparameters
+        'scheduler_state_dict': scheduler_state_dict
     }
     torch.save(model_state, model_save_path)
-    logging.info(f'Model saved at {model_save_path} with lr = {lr}')
+    logging.info(f'Model saved at {model_save_path}')
 
 # Load function - to load model with saved hyperparameters
 def load_model(model_path, net, optimizer, scheduler, device="cpu"):
@@ -87,22 +88,21 @@ def load_model(model_path, net, optimizer, scheduler, device="cpu"):
     scheduler.load_state_dict(checkpoint['scheduler_state_dict'])  # Load scheduler state
     epoch = checkpoint['epoch']
     iteration = checkpoint['iteration']
-    lr = checkpoint['lr']
-    logging.info(f"Loaded model from {model_path}, epoch {epoch}, iteration {iteration}, lr {lr}")
-    return net, optimizer, scheduler, epoch, iteration, lr
+    logging.info(f"Loaded model from {model_path}, epoch {epoch}, iteration {iteration}")
+    return net, optimizer, scheduler, epoch, iteration
 
 
 def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, output_model_dir, save_weight=True, device="cpu",type="td", optimizer=None, scheduler=None, start_epoch=0, start_iter=0):
     logging.info("cuda: {}".format(args.cuda))
     logging.info("device: {}".format(device))
     logging.info(f"Number of available GPUs: {torch.cuda.device_count()}")
+    logging.info("Image resize shape: ({} x {})".format(args.label_size*2, args.label_size*2))
+    logging.info(f"Using StepLR: step_size={scheduler.step_size}, gamma={scheduler.gamma}")
+    logging.info(f"Initial learning rate: {scheduler.get_last_lr()[0]}")
     logging.info('Batch size: train: {}, valid: {}'.format(batch_size, test_batch_size))
     logging.info("Test interval: {}".format(test_interval))
     logging.info("Total training epochs: {}".format(epochs))
-    for param_group in optimizer.param_groups:
-        lr = param_group['lr']
-        break  # 如果有多个 param_groups，只取第一个
-    logging.info("Start epoch: {}, start iter: {}, lr: {}".format(start_epoch, start_iter, lr))
+    logging.info("Start epoch: {}, start iter: {}".format(start_epoch, start_iter))
     
     #print ("cuda:", args.cuda)
     #print ("device:", device)
@@ -162,9 +162,7 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
         logging.info('##### Data Type: Text Detection, Data Number: train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
     
-    if scheduler is None:
-        milestones = [0.5*iters_per_epoch, 1.5*iters_per_epoch]
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
+        
 
     """
     synth_data = SynthDataset(image_transform=image_transform,
@@ -218,18 +216,21 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
             if i % 10 == 0:
                 #print('i = ', i,': loss = ', loss.item())
                 logging.info(f'i = {i}: loss = {loss.item()}')
+            
+            if i % 1000 == 0:  # 每 1000 次迭代打印一次学习率
+                logging.info(f'Epoch {epoch}, Iteration {i}, Loss: {loss.item()}, LR: {scheduler.get_last_lr()[0]}')
 
             if i != 0 and i % test_interval == 0:
                 #test_loss = eval_net_finetune(net, val_loader, criterion, device)
                 test_loss = eval_net(net, val_loader, criterion, device)
                 model_save_path = os.path.join(output_model_dir, 'finetuned_epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
-                for param_group in optimizer.param_groups:
-                    lr = param_group['lr']
-                    break  # 如果有多个 param_groups，只取第一个
-                logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {lr}, Saving model to {model_save_path}')
+                #for param_group in optimizer.param_groups:
+                #    lr = param_group['lr']
+                #    break  # 如果有多个 param_groups，只取第一个
+                logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {scheduler.get_last_lr()[0]}, Saving model to {model_save_path}')
                 if save_weight:
                     #torch.save(net.state_dict(), model_save_path)
-                    save_model(epoch, i, model_save_path, lr, optimizer.state_dict(), scheduler.state_dict())
+                    save_model(epoch, i, model_save_path, optimizer.state_dict(), scheduler.state_dict())
 
 
 def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
@@ -238,7 +239,7 @@ def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
     model_files = glob.glob(os.path.join(output_model_dir, "*.pth"))
     print ("model_files:", model_files)
     if not model_files:
-        return net, optimizer, None, 0, 0, None  # 如果没有模型文件，返回初始状态
+        return net, optimizer, scheduler, 0, 0, None  # 如果没有模型文件，返回初始状态
     
     # 提取epoch和iter信息，按epoch和iter排序
     def extract_epoch_iter(model_path):
@@ -258,15 +259,11 @@ def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
     checkpoint = torch.load(latest_model, map_location=device)
     net.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    if scheduler is None:
-        milestones = [100]
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
     scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
     epoch = checkpoint['epoch']
     iter_num = checkpoint['iteration'] + 1 # should start from the next iter
-    lr = checkpoint['lr']  # Assuming you saved lr in the checkpoint
     
-    return net, optimizer, scheduler, epoch, iter_num, lr
+    return net, optimizer, scheduler, epoch, iter_num
 
 if __name__ == "__main__":
 
@@ -280,12 +277,12 @@ if __name__ == "__main__":
     net = CRAFT(pretrained=True)  # craft模型
 
     optimizer = optim.Adam(net.parameters(), lr)
-    scheduler = None
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
     if args.from_scratch:
         # Check if there are saved models in the output directory
         if os.path.exists(args.output_model_dir):
-            net, optimizer, scheduler, epoch, iter_num, lr = load_latest_model(args.output_model_dir, net, optimizer, scheduler, device)
-            logging.info(f'Resuming from epoch {epoch}, iteration {iter_num}, lr {lr}')
+            net, optimizer, scheduler, epoch, iter_num = load_latest_model(args.output_model_dir, net, optimizer, scheduler, device)
+            logging.info(f'Resuming from epoch {epoch}, iteration {iter_num}')
         else:
             logging.info(f'Training from scratch')
             epoch, iter_num = 0, 0  # Start from the beginning
