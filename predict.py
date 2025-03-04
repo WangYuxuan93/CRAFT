@@ -20,7 +20,7 @@ from utils import file_utils, craft_utils, imgproc
 
 from net.craft import CRAFT
 from eval import copyStateDict
-from evaluation import read_txt_file
+from evaluation2 import read_txt_file
 
 
 def str2bool(v):
@@ -280,7 +280,7 @@ def inference(net, test_folder, text_threshold=0.5, low_text=0.4, link_threshold
         #print ("bboxes:", bboxes)
         pred_bbox = []
         for i, box in enumerate(bboxes):
-            poly = np.array(box).astype(np.int32).reshape((-1))
+            poly = np.array(box).astype(np.int32)#.reshape((-1))
             pred_bbox.append(poly)
         #print ("pred bbox:", pred_bbox)
         pred_bbox_list.append(pred_bbox)

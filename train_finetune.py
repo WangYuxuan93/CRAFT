@@ -22,7 +22,7 @@ from dataset.textdetect_dataset import TextDetectDataset
 import argparse
 import logging
 from predict import inference
-from evaluation import eval_text_detection
+from evaluation2 import eval_text_detection
 
 
 def str2bool(v):

@@ -1,7 +1,6 @@
 import os
 import numpy as np
 from shapely.geometry import Polygon
-from scipy.optimize import linear_sum_assignment
 import argparse
 from skimage.draw import polygon
 import matplotlib.pyplot as plt
