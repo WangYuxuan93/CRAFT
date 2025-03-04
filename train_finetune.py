@@ -21,6 +21,8 @@ from dataset.icdar2017_dataset import Icdar2017Dataset
 from dataset.textdetect_dataset import TextDetectDataset
 import argparse
 import logging
+from predict import inference
+from evaluation import eval_text_detection
 
 
 def str2bool(v):
@@ -31,6 +33,8 @@ parser.add_argument('--synth_dir', default='H:/Dataset/SynthText/SynthText', typ
 parser.add_argument('--ic13_root', default='/home/brooklyn/ICDAR/icdar2013', type=str, help='icdar2013 data dir')
 parser.add_argument('--ic17_root', default='data/ICDAR2017', type=str, help='icdar2017 data dir')
 parser.add_argument('--td_root', default='data/char_lvl', type=str, help='Text detect data dir')
+parser.add_argument('--test_folder', default='data/char_lvl', type=str, help='Test data dir')
+parser.add_argument('--eval_iou', default=False, type=str2bool, help='Use iou in valid set')
 parser.add_argument('--data_type', default='td', type=str, help='data type (td, ic17)')
 parser.add_argument('--label_size', default=384, type=int, help='target label size')
 parser.add_argument('--batch_size', default=16, type=int, help='training data batch size')
@@ -227,13 +231,18 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                 #test_loss = eval_net_finetune(net, val_loader, criterion, device)
                 test_loss = eval_net(net, val_loader, criterion, device)
                 model_save_path = os.path.join(output_model_dir, 'finetuned_epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
-                #for param_group in optimizer.param_groups:
-                #    lr = param_group['lr']
-                #    break  # 如果有多个 param_groups，只取第一个
-                logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {scheduler.get_last_lr()[0]}, Saving model to {model_save_path}')
+                logging.info(f'Evaluating Valid Set: i = {i}, test_loss = {test_loss}, lr = {scheduler.get_last_lr()[0]}')
+                if args.eval_iou:
+                    net.eval()
+                    gold_bbox_list, pred_bbox_list = inference(net, args.test_folder, cuda=args.cuda)
+                    results = eval_text_detection(gold_bbox_list, pred_bbox_list, iou_threshold=0.5)
+                    net.train()
+                    logging.info(f'Evaluating Valid Set (IoU): i = {i}, IoU = {results["iou"]}, acc = {results["acc"]}')
                 if save_weight:
                     #torch.save(net.state_dict(), model_save_path)
                     save_model(epoch, i, model_save_path, optimizer.state_dict(), scheduler.state_dict())
+        # set start iter back to 0 after 1 epoch
+        start_iter = 0
 
 
 def load_latest_model(output_model_dir, net, optimizer, scheduler, device):

@@ -157,9 +157,10 @@ class TextDetectDataset(torch.utils.data.Dataset):
         #self.draw_box(image, char_boxes_list, color="red")
         #self.overlay_heatmap(image, region_scores, alpha=0.5)
 
+        #print ("original img size:", image.size)
         if self.image_transform is not None:
             image = self.image_transform(image)
-            #print (image.shape)
+        #print ("resized img size:", image.shape)
 
         if self.label_transform is not None:
             region_scores = self.label_transform(region_scores)

@@ -191,50 +191,6 @@ def evaluate_text_detection(gold_folder: str, pred_folder: str, iou_threshold: f
         gt_polygons = [Polygon([coords[:2], coords[2:4], coords[4:6], coords[6:8]]) for coords in gt_data]
         pred_polygons = [Polygon([coords[:2], coords[2:4], coords[4:6], coords[6:8]]) for coords in pred_data_coords]
 
-        """
-        # 计算每对地面真值和预测框的IoU
-        ious = np.zeros((len(gt_polygons), len(pred_polygons)), dtype=np.float64)
-        for i, gt_poly in enumerate(gt_polygons):
-            for j, pred_poly in enumerate(pred_polygons):
-                ious[i, j] = calc_iou(gt_poly, pred_poly)
-        if debug:
-            print ("IoU:", ious)
-        # 计算得分矩阵（如果得分与IoU相等，可以直接用IoU）
-        scores = ious.copy()  # 使用IoU作为得分，也可以根据需要替换为其他得分计算方法
-
-        # 定义一个可行性矩阵（允许所有匹配）
-        allowed = np.ones_like(ious, dtype=bool)
-
-        # 使用匈牙利算法进行匹配
-        row_ind, col_ind = linear_sum_assignment(scores, maximize=True)
-        if debug:
-            print (f"row_ind: {row_ind}, col_ind: {col_ind}")
-
-        # 找出匹配的地面真值和预测框
-        matches_gt = row_ind
-        matches_pred = col_ind
-        matches_ious = ious[matches_gt, matches_pred]
-        #print (matches_ious)
-        if debug:
-            print (f"matches_ious: {matches_ious}")
-
-        # 统计真阳性(TP), 假阳性(FP), 假阴性(FN)
-        tp = np.sum(matches_ious >= iou_threshold)  # 真阳性数目
-        fp = len(pred_polygons) - tp     # 假阳性数目
-        fn = len(gt_polygons) - tp       # 假阴性数目
-        if debug:
-            print (f"tp: {tp}")
-
-        # 计算Precision, Recall和F1值
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-        
-        # 存储每个图像的评估结果
-        if len(matches_ious) > 0:
-            ious_list.append(np.mean(matches_ious))
-        """
-
         mask_iou = calc_mask_iou(gt_polygons, pred_polygons)
         ious_list.append(mask_iou)
         
@@ -256,15 +212,49 @@ def evaluate_text_detection(gold_folder: str, pred_folder: str, iou_threshold: f
     return result
 
 
-parser = argparse.ArgumentParser(description='CRAFT Evaluation')
-parser.add_argument('--gold_folder', default='result/gold_labels', type=str, help='Gold file folder')
-parser.add_argument('--pred_folder', default='result/pred_labels', type=str, help='Prediction file folder')
-parser.add_argument('--iou_threshold', default=0.5, type=float, help='test interval')
-args = parser.parse_args()
+def eval_text_detection(gold_data, pred_data, iou_threshold=0.5):
+    # 存储评估结果
+    ious_list = []
+    total_tp = 0
+
+    # 遍历每个地面真值文件
+    for gt_data, pred_data_coords in zip(gold_data, pred_data):
+
+        # 转换为多边形对象
+        #print (gt_data)
+        gt_polygons = [Polygon([coords[:2], coords[2:4], coords[4:6], coords[6:8]]) for coords in gt_data]
+        pred_polygons = [Polygon([coords[:2], coords[2:4], coords[4:6], coords[6:8]]) for coords in pred_data_coords]
+
+        mask_iou = calc_mask_iou(gt_polygons, pred_polygons)
+        ious_list.append(mask_iou)
+        
+        # 计算 Precision, Recall 和 F1 值
+        tp = int(mask_iou >= iou_threshold)  # IoU 大于阈值为真阳性
+
+        # 累加整体的TP, FP, FN
+        total_tp += tp
+    
+    # 计算整体PRF
+    overall_acc = total_tp / len(gold_data)
+
+    # 汇总结果
+    result = {
+        'iou': np.mean(ious_list),
+        'acc': overall_acc
+    }
+
+    return result
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='CRAFT Evaluation')
+    parser.add_argument('--gold_folder', default='result/gold_labels', type=str, help='Gold file folder')
+    parser.add_argument('--pred_folder', default='result/pred_labels', type=str, help='Prediction file folder')
+    parser.add_argument('--iou_threshold', default=0.5, type=float, help='test interval')
+    args = parser.parse_args()
 
 
-# 计算并输出结果
-result = evaluate_text_detection(args.gold_folder, args.pred_folder, iou_threshold=args.iou_threshold)
-print(result)
-info = "\n".join(["{}:{:.2f}".format(x,y) for x, y in result.items()])
-print (info)
+    # 计算并输出结果
+    result = evaluate_text_detection(args.gold_folder, args.pred_folder, iou_threshold=args.iou_threshold)
+    print(result)
+    info = "\n".join(["{}:{:.2f}".format(x,y) for x, y in result.items()])
+    print (info)
