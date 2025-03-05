@@ -15,6 +15,7 @@ from torch.autograd import Variable
 
 import cv2
 import numpy as np
+from tqdm import tqdm
 
 from utils import file_utils, craft_utils, imgproc
 
@@ -254,7 +255,16 @@ def overlay_mask_and_boxes(input_image, mask, boxes, alpha=0.5):
 
 def load_model(model_path, net, device="cpu"):
     checkpoint = torch.load(model_path, map_location=device)
-    net.load_state_dict(checkpoint['model_state_dict'])
+    # 去掉 "module." 前缀
+    new_state_dict = {}
+    for k, v in checkpoint['model_state_dict'].items():
+        if k.startswith("module."):
+            new_state_dict[k[7:]] = v  # 去掉 "module."
+        else:
+            new_state_dict[k] = v
+
+    # 加载去掉 "module." 的 state_dict
+    net.load_state_dict(new_state_dict)
     return net
 
 def load_text_detect(images_path, labels_path):
@@ -272,7 +282,7 @@ def inference(net, test_folder, text_threshold=0.5, low_text=0.4, link_threshold
     net.eval()
     pred_bbox_list = []
     gold_bbox_list = []
-    for gold_path, image_path in zip(label_names, image_names):
+    for gold_path, image_path in tqdm(zip(label_names, image_names), total=len(image_names), desc="Processing", ncols=80):
         #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
         image = imgproc.loadImage(os.path.join(images_path, image_path))
 
@@ -320,15 +330,20 @@ if __name__ == '__main__':
     net = CRAFT()     # initialize
     print('Loading weights from checkpoint (' + args.trained_model + ')')
     
-    if args.cuda:
-        net.load_state_dict(copyStateDict(torch.load(args.trained_model)))
-        #net = load_model(args.trained_model, net)
-        net = net.cuda()
-        net = torch.nn.DataParallel(net)
-        cudnn.benchmark = False
+    checkpoint = torch.load(args.trained_model)
+    if 'model_state_dict' in checkpoint:
+        if args.cuda:
+            net = load_model(args.trained_model, net)
+        else:
+            net = load_model(args.trained_model, net, device="cpu")
     else:
-        net.load_state_dict(copyStateDict(torch.load(args.trained_model, map_location='cpu')))
-        #net = load_model(args.trained_model, net, device="cpu")
+        if args.cuda:
+            net.load_state_dict(copyStateDict(torch.load(args.trained_model)))
+            net = net.cuda()
+            net = torch.nn.DataParallel(net)
+            cudnn.benchmark = False
+        else:
+            net.load_state_dict(copyStateDict(torch.load(args.trained_model, map_location='cpu')))
 
     net.eval()
     t = time.time()
