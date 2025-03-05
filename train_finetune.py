@@ -74,6 +74,9 @@ label_transform = transforms.Compose([
 
 # Saving function - Save model weights and additional params
 def save_model(epoch, iter_num, model_save_path, optimizer_state_dict, scheduler_state_dict):
+    output_model_dir = os.path.dirname(model_save_path)
+    if not os.path.exists(output_model_dir):
+        os.makedirs(output_model_dir)
     model_state = {
         'epoch': epoch,
         'iteration': iter_num,
@@ -324,8 +327,8 @@ if __name__ == "__main__":
     net.train()
     #model_save_prefix = 'finetune/craft_finetune_'
     #model_save_prefix = os.path.join(args.output_model_dir, 'craft_finetune_')
-    if not os.path.exists(args.output_model_dir):
-        os.makedirs(args.output_model_dir)
+    #if not os.path.exists(args.output_model_dir):
+    #    os.makedirs(args.output_model_dir)
     try:
         train(net=net,
               epochs=epochs,
