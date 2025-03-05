@@ -227,7 +227,7 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
             if i % 1000 == 0:  # 每 1000 次迭代打印一次学习率
                 logging.info(f'Epoch {epoch}, Iteration {i}, Loss: {loss.item()}, LR: {scheduler.get_last_lr()[0]}')
 
-            if i != 0 and i % test_interval == 0:
+            if i % test_interval == 0:
                 #test_loss = eval_net_finetune(net, val_loader, criterion, device)
                 test_loss = eval_net(net, val_loader, criterion, device)
                 model_save_path = os.path.join(output_model_dir, 'finetuned_epoch_' + str(epoch) + '_iter' + str(i) + '.pth')
