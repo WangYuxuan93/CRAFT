@@ -127,7 +127,7 @@ def read_folder(folder_path, is_gold=True):
     return data_dict
 
 
-def evaluate_text_detection(gold_folder: str, pred_folder: str, img_folder:str, scale:float = 1.1, iou_threshold: float = 0.5, debug=True) -> dict:
+def evaluate_text_detection(gold_folder: str, pred_folder: str, img_folder:str, scale:float = 1.1, iou_threshold: float = 0.5, debug=False) -> dict:
     """
     计算文本检测的 IoU, Precision, Recall 和 F1 值，同时统计 mask 面积。
     """
