@@ -67,7 +67,6 @@ def test_net(net, image, text_threshold, link_threshold, low_text, cuda):
 
     return boxes, ret_score_text
 
-
 def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio, refine_net=None, debug=False):
     t0 = time.time()
 
@@ -76,6 +75,66 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canv
         print ("original img size:", image.shape)
     img_resized, target_ratio, size_heatmap = imgproc.resize_aspect_ratio(image, canvas_size, interpolation=cv2.INTER_LINEAR, mag_ratio=mag_ratio)
     ratio_h = ratio_w = 1 / target_ratio
+    if debug:
+        print ("img_resized:", img_resized.shape)
+
+    # preprocessing
+    x = imgproc.normalizeMeanVariance(img_resized)
+    x = torch.from_numpy(x).permute(2, 0, 1)    # [h, w, c] to [c, h, w]
+    x = Variable(x.unsqueeze(0))                # [c, h, w] to [b, c, h, w]
+    if cuda:
+        x = x.cuda()
+
+    if debug:
+        print ("x:", x.shape)
+    # forward pass
+    with torch.no_grad():
+        y, feature = net(x)
+
+    # make score and link map
+    score_text = y[0,:,:,0].cpu().data.numpy()
+    score_link = y[0,:,:,1].cpu().data.numpy()
+
+    # refine link
+    if refine_net is not None:
+        with torch.no_grad():
+            y_refiner = refine_net(y, feature)
+        score_link = y_refiner[0,:,:,0].cpu().data.numpy()
+
+    t0 = time.time() - t0
+    t1 = time.time()
+
+    # Post-processing
+    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
+    if debug:
+        print ("score_text:", score_text.shape)
+    # coordinate adjustment
+    boxes = craft_utils.adjustResultCoordinates(boxes, ratio_w, ratio_h)
+
+    t1 = time.time() - t1
+
+    # render results (optional)
+    render_img = score_text.copy()
+    render_img = np.hstack((render_img, score_link))
+    ret_score_text = imgproc.cvt2HeatmapImg(render_img)
+
+    #if args.show_time : print("\ninfer/postproc time : {:.3f}/{:.3f}".format(t0, t1))
+
+    return boxes, ret_score_text, score_text, target_ratio, img_resized
+
+def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, target_size=768, refine_net=None, debug=False):
+    t0 = time.time()
+
+    # resize
+    if debug:
+        print ("original img size:", image.shape)
+    #img_resized, target_ratio, size_heatmap = imgproc.resize_aspect_ratio(image, canvas_size, interpolation=cv2.INTER_LINEAR, mag_ratio=mag_ratio)
+    target_w, target_h = target_size, target_size
+    img_resized = cv2.resize(image, (target_w, target_h), interpolation = cv2.INTER_LINEAR)
+    ratio_h = image.shape[0] / target_h
+    ratio_w = image.shape[1] / target_w
+    target_ratio = ratio_h
+    #ratio_h = ratio_w = 1 / target_ratio
     if debug:
         print ("img_resized:", img_resized.shape)
 
@@ -314,6 +373,8 @@ if __name__ == '__main__':
     parser.add_argument('--result_folder', default='./result/', type=str, help='folder path to save result images')
     parser.add_argument('--output_folder', default='./result/pred_labels', type=str, help='folder path to save prediction file')
     parser.add_argument('--only_pred_file', default=False, action='store_true', help='Only output prediction file to output folder')
+    parser.add_argument('--target_size', default=768, type=int, help='image size for inference')
+    parser.add_argument('--use_target_size', default=False, type=str2bool, help='resize the image to target size')
     args = parser.parse_args()
 
 
@@ -355,32 +416,33 @@ if __name__ == '__main__':
         image = imgproc.loadImage(image_path)
 
         #bboxes, polys, score_text = test_net(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.poly, refine_net)
-        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
-
-        # save score text
-        filename, file_ext = os.path.splitext(os.path.basename(image_path))
-
-        real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
-        real_mask_file = result_folder + "/" + filename + '_mask.png'
+        if args.use_target_size:
+            bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.target_size)
+        else:
+            bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
+        
         if not args.only_pred_file:
+            # save score text
+            filename, file_ext = os.path.splitext(os.path.basename(image_path))
+
+            real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
+            real_mask_file = result_folder + "/" + filename + '_mask.png'
+        
             cv2.imwrite(real_mask_file, real_mask)
 
-        #overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
-        #overlay_file = result_folder + "/overlay_" + filename + '_mask.jpg'
-        #cv2.imwrite(overlay_file, overlay_image)
+            #overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
+            #overlay_file = result_folder + "/overlay_" + filename + '_mask.jpg'
+            #cv2.imwrite(overlay_file, overlay_image)
 
-        heatmap_overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
-        heatmap_overlay_file = result_folder + "/" + filename + '_mask_overlay.jpg'
-        if not args.only_pred_file:
+            heatmap_overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
+            heatmap_overlay_file = result_folder + "/" + filename + '_mask_overlay.jpg'
             cv2.imwrite(heatmap_overlay_file, heatmap_overlay_image)
 
-        mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
-        if not args.only_pred_file:
+            mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
             cv2.imwrite(mask_file, ret_score_text)
 
-        mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
-        mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
-        if not args.only_pred_file:
+            mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
+            mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
             cv2.imwrite(mask_and_box_image_file, mask_and_box_image)
 
         file_utils.saveResult(image_path, image[:,:,::-1], bboxes, dirname=args.output_folder)
