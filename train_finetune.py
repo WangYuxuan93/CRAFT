@@ -326,8 +326,8 @@ if __name__ == "__main__":
     #model_save_prefix = os.path.join(args.output_model_dir, 'craft_finetune_')
     if not os.path.exists(args.output_model_dir):
         os.makedirs(args.output_model_dir)
-    try:
-        train(net=net,
+    #try:
+    train(net=net,
               epochs=epochs,
               batch_size=batch_size,
               test_batch_size=test_batch_size,
@@ -340,10 +340,10 @@ if __name__ == "__main__":
               scheduler=scheduler,
               start_epoch=epoch,  # Start from the loaded epoch
               start_iter=iter_num)  # Start from the loaded iteration
-    except KeyboardInterrupt:
-        torch.save(net.state_dict(), 'INTERRUPTED.pth')
-        print('Saved interrupt')
-        try:
-            sys.exit(0)
-        except SystemExit:
-            os._exit(0)
+    #except KeyboardInterrupt:
+    #    torch.save(net.state_dict(), 'INTERRUPTED.pth')
+    #    print('Saved interrupt')
+    #    try:
+    #        sys.exit(0)
+    #    except SystemExit:
+    #        os._exit(0)
