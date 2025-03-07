@@ -286,6 +286,7 @@ def overlay_boxes_on_image(image, boxes, alpha=0.5):
     # 在图像上绘制框
     for box in boxes:
         poly = np.array(box).astype(np.int32).reshape((-1, 1, 2))  # 转换为多边形格式
+        #print ("poly in draw:", poly)
         cv2.polylines(image, [poly], isClosed=True, color=(0, 0, 255), thickness=1)
 
     return image
@@ -359,6 +360,29 @@ def inference(net, test_folder, text_threshold=0.5, low_text=0.4, link_threshold
     
     return gold_bbox_list, pred_bbox_list
 
+def expand_box(coords, scale=1.1, image_shape=None):
+    """
+    按比例扩展预测框。
+    - coords: 形状为 (N,2) 的 numpy 数组，表示预测框的坐标。
+    - scale: 扩展比例，默认为 1.1，即扩大 10%。
+    """
+    center = np.mean(coords, axis=0)
+    #print ("image shape:", image_shape)
+    #print ("center:", center)
+    #print ("(coords - center) * scale:",(coords - center) * scale)
+    #print ("center + (coords - center) * scale:", center + (coords - center) * scale)
+    expanded_coords = np.round(center + (coords - center) * scale).astype(int)
+    
+    # 限制坐标不超出边界
+    if image_shape is not None:
+        expanded_coords[:, 0] = np.clip(expanded_coords[:, 0], 0, image_shape[1] - 1)
+        expanded_coords[:, 1] = np.clip(expanded_coords[:, 1], 0, image_shape[0] - 1)
+    
+    #print ("coords:", coords)
+    #print ("expanded_coords:", expanded_coords)
+    #exit()
+    return expanded_coords
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
     parser.add_argument('--trained_model', default='final_net_param.pth', type=str, help='pretrained model')
@@ -375,6 +399,7 @@ if __name__ == '__main__':
     parser.add_argument('--only_pred_file', default=False, action='store_true', help='Only output prediction file to output folder')
     parser.add_argument('--target_size', default=768, type=int, help='image size for inference')
     parser.add_argument('--use_target_size', default=False, type=str2bool, help='resize the image to target size')
+    parser.add_argument('--scale', default=1, type=float, help='box expanding scale')
     args = parser.parse_args()
 
 
@@ -421,6 +446,12 @@ if __name__ == '__main__':
         else:
             bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
         
+        if args.scale != 1:
+            image_shape = image.shape
+            print ("image shape:",image_shape)
+            print ("origin bboxes:",bboxes)
+            bboxes = [expand_box(coords, scale=args.scale, image_shape=image_shape) for coords in bboxes]
+            print ("expanded bboxes:",bboxes)
         if not args.only_pred_file:
             # save score text
             filename, file_ext = os.path.splitext(os.path.basename(image_path))

@@ -108,7 +108,7 @@ def calc_mask_iou(gt_coords_list, pred_coords_list, image_shape, scale=1.1, debu
 def read_txt_file(file_path, is_gold=True, debug=False):
     """ 读取txt文件的坐标数据 """
     data = []
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding="utf-8") as f:
         for line in f:
             if len(line.strip()) == 0: 
                 continue
@@ -174,6 +174,10 @@ def evaluate_text_detection(gold_folder: str, pred_folder: str, img_folder:str, 
         total_tp += tp
     
     overall_acc = total_tp / len(gold_data) if len(gold_data) > 0 else 0.0
+    
+    iou_bins = [0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    iou_histogram, _ = np.histogram(ious_list, bins=iou_bins)
+    iou_percentage = (iou_histogram / len(ious_list)) if len(ious_list) > 0 else [0] * len(iou_histogram)
 
     result = {
         'Average IoU (per file)': np.mean(ious_list) if len(ious_list) > 0 else 0.0,
@@ -182,6 +186,11 @@ def evaluate_text_detection(gold_folder: str, pred_folder: str, img_folder:str, 
         'Average Prediction Extra Area Ratio': np.mean(pred_extra_ratio_list) if len(pred_extra_ratio_list) > 0 else 0.0,
         'Average Ground Truth Mask Area': np.mean(gt_mask_area_list) if len(gt_mask_area_list) > 0 else 0.0,
         'Average Prediction Mask Area': np.mean(pred_mask_area_list) if len(pred_mask_area_list) > 0 else 0.0,
+        'IoU 0-20%': iou_percentage[0],
+        'IoU 21-40%': iou_percentage[1],
+        'IoU 41-60%': iou_percentage[2],
+        'IoU 61-80%': iou_percentage[3],
+        'IoU 81-100%': iou_percentage[4]
     }
 
     return result
