@@ -17,11 +17,16 @@ def load_text_detect(images_path, labels_path):
 
 def get_text_detect_char_box(label_path):
 
-    fh = open(label_path, 'r')
+    fh = open(label_path, 'r', encoding="utf-8")
+    char_boxes_by_word = []
     char_boxes = []
     chars = []
     for line in fh:
         line = line.rstrip()
+        if len(line) == 0:
+            char_boxes_by_word.append(char_boxes)
+            char_boxes = []
+            continue
         line = line.split(',')
         box = np.array(line[:8], dtype=int)
         #转换格式
@@ -31,12 +36,13 @@ def get_text_detect_char_box(label_path):
         char = line[-1]
         char_boxes.append(box)
         chars.append(char)
-    return char_boxes, chars
+    if len(char_boxes) > 0:
+        char_boxes_by_word.append(char_boxes)
+    return char_boxes_by_word, chars
 
 #输入一张图片的字符边框列表，字符串列表，输出affinity边框列表
-def get_affinity_boxes_list(char_boxes):
+def get_affinity_boxes_list(char_boxes_by_word):
     """
-
     :param char_boxes_array: 字符边框矩阵
     :param wordsList: 从SynthText/gt.mat中读取到的文字列表
     :return: 字符边框列表和字间边框列表
@@ -44,8 +50,9 @@ def get_affinity_boxes_list(char_boxes):
     # 字符索引，确定word中字符个数
     affinity_boxes_list = list()
     char_boxes_list = list()
-    affinity_boxes_list.append(cal_affinity_boxes(char_boxes))
-    char_boxes_list.append(char_boxes)
+    for char_boxes in char_boxes_by_word:
+        affinity_boxes_list.append(cal_affinity_boxes(char_boxes))
+        char_boxes_list.append(char_boxes)
     affinity_boxes_list = list(chain.from_iterable(affinity_boxes_list))
     char_boxes_list = list(chain.from_iterable(char_boxes_list))
     return char_boxes_list, affinity_boxes_list
@@ -83,7 +90,7 @@ class TextDetectDataset(torch.utils.data.Dataset):
             bottom_left = tuple(box[3])
             
             # 绘制矩形框
-            draw.line([top_left, top_right, bottom_right, bottom_left, top_left], fill=color, width=1)
+            draw.line([top_left, top_right, bottom_right, bottom_left, top_left], fill=color, width=2)
 
         # 显示绘制后的图片
         plt.imshow(image)
@@ -130,14 +137,14 @@ class TextDetectDataset(torch.utils.data.Dataset):
         result_image.show()  # 显示最终结果图像
 
     # label应为高斯热力图
-    def __getitem__(self, idx, debug=False):
+    def __getitem__(self, idx, debug=True):
         fn = self.image_names[idx]
         image = Image.open(os.path.join(self.images_dir, fn))
         
         label_name = self.label_names[idx]
-        char_boxes, chars = get_text_detect_char_box(os.path.join(self.labels_dir, label_name))
+        char_boxes_by_word, chars = get_text_detect_char_box(os.path.join(self.labels_dir, label_name))
     
-        char_boxes_list, affinity_boxes_list = get_affinity_boxes_list(char_boxes)
+        char_boxes_list, affinity_boxes_list = get_affinity_boxes_list(char_boxes_by_word)
         if debug:
             #print ("char_boxes_list: ",char_boxes_list)
             self.draw_box(image, char_boxes_list, color="red")
