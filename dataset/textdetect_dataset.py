@@ -137,7 +137,7 @@ class TextDetectDataset(torch.utils.data.Dataset):
         result_image.show()  # 显示最终结果图像
 
     # label应为高斯热力图
-    def __getitem__(self, idx, debug=True):
+    def __getitem__(self, idx, debug=False):
         fn = self.image_names[idx]
         image = Image.open(os.path.join(self.images_dir, fn))
         

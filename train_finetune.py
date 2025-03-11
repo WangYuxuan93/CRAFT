@@ -171,8 +171,9 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True)
         val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
         logging.info('##### Data Type: Text Detection, Data Number: train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
-    
-        
+        iters_per_epoch = len(td_train_data) // batch_size
+        logging.info('Number of iters per epoch: {}'.format(iters_per_epoch))
+        logging.info('Total iters: {}'.format(iters_per_epoch * epochs))
 
     """
     synth_data = SynthDataset(image_transform=image_transform,
@@ -230,7 +231,7 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
             if i % 1000 == 0:  # 每 1000 次迭代打印一次学习率
                 logging.info(f'Epoch {epoch}, Iteration {i}, Loss: {loss.item()}, LR: {scheduler.get_last_lr()[0]}')
 
-            if i % test_interval == 0:
+            if (epoch == 0 and i == 0) or (i != 0 and i % test_interval) == 0:
                 #test_loss = eval_net_finetune(net, val_loader, criterion, device)
                 test_loss = eval_net(net, val_loader, criterion, device)
                 model_save_path = os.path.join(output_model_dir, 'finetuned_epoch_' + str(epoch) + '_iter' + str(i) + '.pth')

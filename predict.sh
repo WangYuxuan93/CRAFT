@@ -1,1 +1,3 @@
 python predict.py --trained_model=model/craft_mlt_25k.pth --test_folder=data/test --result_folder=result/test
+E:/Python312/python.exe g:/code/CRAFT-v0/predict.py --test_folder .\data\text_detection_testset\images\ --result_folder .\data\text_detection_testset\results_synthtext_epoch0_iter500\ --trained_model .\model\synthtext\finetuned_epoch_0_iter500.pth
+E:/Python312/python.exe g:/code/CRAFT-v0/predict_legend_box.py --trained_model .\model\td-bs8_8gpu-v1\finetuned_epoch_9_iter700.pth --test_folder .\data\main_map_test\ --text_threshold 0.3 --low_text 0.3 --scale 1 --mag_ratio 10 
