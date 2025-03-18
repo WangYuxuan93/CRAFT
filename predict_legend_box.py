@@ -407,6 +407,7 @@ if __name__ == '__main__':
     if 'model_state_dict' in checkpoint:
         if args.cuda:
             net = load_model(args.trained_model, net)
+            net = net.cuda()
         else:
             net = load_model(args.trained_model, net, device="cpu")
     else:
