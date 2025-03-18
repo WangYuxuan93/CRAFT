@@ -34,7 +34,7 @@ def split_image(image_path, image_output_folder, tile_size=(512, 512)):
     
     return sub_images, image_output_folder
 
-def run_text_detection(script_path, image_output_folder, tmp_folder, model_path="model/craft_mlt_25k.pth", mag_ratio=10, canvas_size=2048):
+def run_text_detection(script_path, image_output_folder, tmp_folder, model_path="model/craft_mlt_25k.pth", text_threshold=0.3, low_text=0.3, mag_ratio=10, canvas_size=2048):
     """
     调用 CRAFT 文本检测代码。
     """
@@ -44,6 +44,8 @@ def run_text_detection(script_path, image_output_folder, tmp_folder, model_path=
         "--output_folder", tmp_folder,
         "--result_folder", tmp_folder,
         "--trained_model", model_path,
+        "--text_threshold", text_threshold,
+        "=low_text", low_text,
         "--mag_ratio", str(mag_ratio),
         "--canvas_size", str(canvas_size),
     ])
@@ -91,6 +93,10 @@ if __name__ == "__main__":
     parser.add_argument("--script_path", type=str, required=True, help="Path to text detection script")
     parser.add_argument("--model_path", type=str, default="model/craft_mlt_25k.pth", help="Path to ocr model")
     parser.add_argument("--tile_size", type=str, default="512,512", help="Tile size for splitting, e.g., 512,512")
+    parser.add_argument('--text_threshold', default=0.3, type=float, help='text confidence threshold')
+    parser.add_argument('--low_text', default=0.3, type=float, help='text low-bound score')
+    parser.add_argument('--canvas_size', default=4096, type=int, help='image size for inference')
+    parser.add_argument('--mag_ratio', default=1.5, type=float, help='image magnification ratio')
     parser.add_argument("--output_folder", type=str, default="./sub_images", help="Folder to save sub-images")
     parser.add_argument("--tmp_folder", type=str, default="./tmp_result", help="Folder to save detection results")
     parser.add_argument("--merged_output_folder", type=str, default="./merged_outputs", help="Folder to save merged bounding box files")
@@ -117,7 +123,8 @@ if __name__ == "__main__":
         output_image_path = os.path.join(args.output_image_folder, f"{base_name}.jpg")
         
         sub_images, image_output_folder = split_image(image_path, image_output_folder, tile_size)
-        run_text_detection(args.script_path, image_output_folder, image_tmp_folder, model_path=args.model_path)
+        run_text_detection(args.script_path, image_output_folder, image_tmp_folder, model_path=args.model_path, 
+                           text_threshold=args.text_threshold, low_text=args.low_text, mag_ratio=args.mag_ratio, canvas_size=args.canvas_size)
         merge_bounding_boxes(sub_images, image_tmp_folder, merged_output_file)
         draw_bounding_boxes(image_path, merged_output_file, output_image_path)
         
