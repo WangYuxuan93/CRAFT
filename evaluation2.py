@@ -313,7 +313,7 @@ if __name__ == '__main__':
     parser.add_argument('--gold_folder', default='result/gold_labels', type=str, help='Gold file folder')
     parser.add_argument('--pred_folder', default='result/pred_labels', type=str, help='Prediction file folder')
     parser.add_argument('--img_folder', default='data/char_lvl/valid_images', type=str, help='image file folder')
-    parser.add_argument('--scale', default=1.1, type=float, help='char box expanding scale')
+    parser.add_argument('--scale', default=1, type=float, help='char box expanding scale')
     parser.add_argument('--iou_threshold', default=0.5, type=float, help='IoU threshold')
     args = parser.parse_args()
 
