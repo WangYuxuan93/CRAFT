@@ -4,6 +4,9 @@ import numpy as np
 import subprocess
 import argparse
 
+def str2bool(v):
+    return v.lower() in ("yes", "y", "true", "t", "1")
+
 def split_image(image_path, image_output_folder, tile_size=(512, 512)):
     """
     按照 tile_size 进行切分，并保存到 output_folder。
@@ -34,7 +37,7 @@ def split_image(image_path, image_output_folder, tile_size=(512, 512)):
     
     return sub_images, image_output_folder
 
-def run_text_detection(script_path, image_output_folder, tmp_folder, model_path="model/craft_mlt_25k.pth", text_threshold=0.3, low_text=0.3, mag_ratio=10, canvas_size=2048):
+def run_text_detection(script_path, image_output_folder, tmp_folder, model_path="model/craft_mlt_25k.pth", cuda="True", text_threshold=0.3, low_text=0.3, mag_ratio=10, canvas_size=2048):
     """
     调用 CRAFT 文本检测代码。
     """
@@ -44,8 +47,9 @@ def run_text_detection(script_path, image_output_folder, tmp_folder, model_path=
         "--output_folder", tmp_folder,
         "--result_folder", tmp_folder,
         "--trained_model", model_path,
+        "--cuda", str(cuda),
         "--text_threshold", text_threshold,
-        "=low_text", low_text,
+        "--low_text", low_text,
         "--mag_ratio", str(mag_ratio),
         "--canvas_size", str(canvas_size),
     ])
@@ -101,6 +105,7 @@ if __name__ == "__main__":
     parser.add_argument("--tmp_folder", type=str, default="./tmp_result", help="Folder to save detection results")
     parser.add_argument("--merged_output_folder", type=str, default="./merged_outputs", help="Folder to save merged bounding box files")
     parser.add_argument("--output_image_folder", type=str, default="./merged_visualization", help="Folder to save output images with bounding boxes")
+    parser.add_argument('--cuda', default="False", type=str, help='Use cuda to train model')
     
     args = parser.parse_args()
     tile_size = tuple(map(int, args.tile_size.split(",")))
@@ -123,7 +128,7 @@ if __name__ == "__main__":
         output_image_path = os.path.join(args.output_image_folder, f"{base_name}.jpg")
         
         sub_images, image_output_folder = split_image(image_path, image_output_folder, tile_size)
-        run_text_detection(args.script_path, image_output_folder, image_tmp_folder, model_path=args.model_path, 
+        run_text_detection(args.script_path, image_output_folder, image_tmp_folder, model_path=args.model_path, cuda=args.cuda,
                            text_threshold=args.text_threshold, low_text=args.low_text, mag_ratio=args.mag_ratio, canvas_size=args.canvas_size)
         merge_bounding_boxes(sub_images, image_tmp_folder, merged_output_file)
         draw_bounding_boxes(image_path, merged_output_file, output_image_path)
