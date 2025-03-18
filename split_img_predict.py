@@ -89,6 +89,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process a folder of images for text detection")
     parser.add_argument("--image_folder", type=str, required=True, help="Path to input image folder")
     parser.add_argument("--script_path", type=str, required=True, help="Path to text detection script")
+    parser.add_argument("--model_path", type=str, default="model/craft_mlt_25k.pth", help="Path to ocr model")
     parser.add_argument("--tile_size", type=str, default="512,512", help="Tile size for splitting, e.g., 512,512")
     parser.add_argument("--output_folder", type=str, default="./sub_images", help="Folder to save sub-images")
     parser.add_argument("--tmp_folder", type=str, default="./tmp_result", help="Folder to save detection results")
@@ -116,7 +117,7 @@ if __name__ == "__main__":
         output_image_path = os.path.join(args.output_image_folder, f"{base_name}.jpg")
         
         sub_images, image_output_folder = split_image(image_path, image_output_folder, tile_size)
-        run_text_detection(args.script_path, image_output_folder, image_tmp_folder)
+        run_text_detection(args.script_path, image_output_folder, image_tmp_folder, model_path=args.model_path)
         merge_bounding_boxes(sub_images, image_tmp_folder, merged_output_file)
         draw_bounding_boxes(image_path, merged_output_file, output_image_path)
         
