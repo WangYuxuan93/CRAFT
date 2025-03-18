@@ -4,6 +4,9 @@ import numpy as np
 import subprocess
 import argparse
 
+os.environ["MKL_THREADING_LAYER"] = "GNU"
+os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
+
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
 
@@ -48,8 +51,8 @@ def run_text_detection(script_path, image_output_folder, tmp_folder, model_path=
         "--result_folder", tmp_folder,
         "--trained_model", model_path,
         "--cuda", str(cuda),
-        "--text_threshold", text_threshold,
-        "--low_text", low_text,
+        "--text_threshold", str(text_threshold),
+        "--low_text", str(low_text),
         "--mag_ratio", str(mag_ratio),
         "--canvas_size", str(canvas_size),
     ])
