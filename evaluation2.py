@@ -4,6 +4,7 @@ import argparse
 from skimage.draw import polygon
 import matplotlib.pyplot as plt
 import cv2
+from tqdm import tqdm
 
 def expand_box(coords, scale=1.1, image_shape=None):
     """
@@ -141,7 +142,7 @@ def evaluate_text_detection(gold_folder: str, pred_folder: str, img_folder:str, 
     uncovered_ratio_list = []
     pred_extra_ratio_list = []
 
-    for img_id, gt_data in gold_data.items():
+    for img_id, gt_data in tqdm(gold_data.items()):
         pred_id = img_id.replace('gt_img', 'pred_img')
         if pred_id not in pred_data:
             print(f"预测文件 {pred_id} 不存在，跳过该图像。")
