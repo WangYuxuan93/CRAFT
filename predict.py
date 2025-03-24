@@ -267,18 +267,8 @@ def overlay_mask_on_image(input_image, text_mask, alpha=0.5):
 
     return overlay
 
+"""
 def overlay_boxes_on_image(image, boxes, alpha=0.5):
-    """
-    将预测的框叠加到图像上。
-
-    参数:
-    - image: 输入的原始图像。
-    - boxes: 检测的框，格式为 [num_boxes, 4, 2] 的多边形顶点坐标。
-    - alpha: 透明度，默认为 0.5。
-
-    返回:
-    - image_with_boxes: 绘制了框的图像。
-    """
     # 确保图像为彩色（避免灰度图的错误绘制）
     if len(image.shape) == 2 or image.shape[2] == 1:
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -290,6 +280,26 @@ def overlay_boxes_on_image(image, boxes, alpha=0.5):
         cv2.polylines(image, [poly], isClosed=True, color=(0, 0, 255), thickness=1)
 
     return image
+"""
+
+def overlay_boxes_on_image(image, boxes, alpha=0.5):
+    if len(image.shape) == 2 or image.shape[2] == 1:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+
+    for box in boxes:
+        poly = np.array(box).astype(np.int32).reshape((-1, 1, 2))
+        
+        # 创建一层透明图层
+        overlay = image.copy()
+
+        # 先在 overlay 上画粗线
+        cv2.polylines(overlay, [poly], isClosed=True, color=(0, 0, 255), thickness=2)
+
+        # 将 overlay 叠加回原图，实现半透明效果
+        image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+
+    return image
+
 
 def overlay_mask_and_boxes(input_image, mask, boxes, alpha=0.5):
     """
@@ -437,7 +447,7 @@ if __name__ == '__main__':
     #print("net.eval")
     #print(image_list)
     # load data
-    for k, image_path in enumerate(image_list):
+    for image_path in tqdm(image_list):
         #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
         image = imgproc.loadImage(image_path)
 
@@ -449,10 +459,10 @@ if __name__ == '__main__':
         
         if args.scale != 1:
             image_shape = image.shape
-            print ("image shape:",image_shape)
-            print ("origin bboxes:",bboxes)
+            #print ("image shape:",image_shape)
+            #print ("origin bboxes:",bboxes)
             bboxes = [expand_box(coords, scale=args.scale, image_shape=image_shape) for coords in bboxes]
-            print ("expanded bboxes:",bboxes)
+            #print ("expanded bboxes:",bboxes)
         if not args.only_pred_file:
             # save score text
             filename, file_ext = os.path.splitext(os.path.basename(image_path))
@@ -466,9 +476,13 @@ if __name__ == '__main__':
             #overlay_file = result_folder + "/overlay_" + filename + '_mask.jpg'
             #cv2.imwrite(overlay_file, overlay_image)
 
-            heatmap_overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
-            heatmap_overlay_file = result_folder + "/" + filename + '_mask_overlay.jpg'
-            cv2.imwrite(heatmap_overlay_file, heatmap_overlay_image)
+            #heatmap_overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
+            #heatmap_overlay_file = result_folder + "/" + filename + '_mask_overlay.jpg'
+            #cv2.imwrite(heatmap_overlay_file, heatmap_overlay_image)
+
+            box_image = overlay_boxes_on_image(image, bboxes)
+            box_image_file = result_folder + "/" + filename + '_box_overlay.jpg'
+            cv2.imwrite(box_image_file, box_image)
 
             mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
             cv2.imwrite(mask_file, ret_score_text)
