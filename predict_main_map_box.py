@@ -43,10 +43,10 @@ def get_image_paths(root_dir):
         # 获取 labeled 文件夹中的main.png
         image_files = [
             os.path.join(labeled_path, img) for img in os.listdir(labeled_path)
-            if img == "main.png"
+            if img in ["main_no_legend.png", "main_line_no_legend.png"]
         ]
         
-        assert len(image_files) == 1
+        assert len(image_files) == 2
         # 存入字典，使用第一层文件夹的路径作为 key
         if image_files:
             grouped_paths[first_level].extend(image_files)
@@ -390,6 +390,7 @@ if __name__ == '__main__':
     parser.add_argument('--target_size', default=768, type=int, help='image size for inference')
     parser.add_argument('--use_target_size', default=False, type=str2bool, help='resize the image to target size')
     parser.add_argument('--scale', default=1, type=float, help='box expanding scale')
+    parser.add_argument('--output_to_origin_folder', default=False, action='store_true', help='Whether output to the original folder')
     args = parser.parse_args()
 
 
@@ -430,10 +431,15 @@ if __name__ == '__main__':
             #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
             #print (image_path)
             image = imgproc.loadImage(image_path)
-            result_folder = os.path.join(args.result_folder, img_id)
-            result_folder = os.path.join(result_folder, "visualization")
-            output_folder = os.path.join(args.output_folder, img_id)
-            output_folder = os.path.join(output_folder, "bbox")
+            if args.output_to_origin_folder:
+                img_dir = os.path.join(args.test_folder, img_id)
+                result_folder = os.path.join(img_dir, "visualization")
+                output_folder = os.path.join(img_dir, "bbox")
+            else:
+                result_folder = os.path.join(args.result_folder, img_id)
+                result_folder = os.path.join(result_folder, "visualization")
+                output_folder = os.path.join(args.output_folder, img_id)
+                output_folder = os.path.join(output_folder, "bbox")
             
             if not os.path.isdir(result_folder):
                 os.makedirs(result_folder)
