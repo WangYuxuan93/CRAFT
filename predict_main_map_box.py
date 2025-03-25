@@ -397,7 +397,7 @@ if __name__ == '__main__':
     """ For test images in a folder """
     #image_list, _, _ = file_utils.get_files(args.test_folder)
     image_dict = get_image_paths(args.test_folder)
-    #print ("image_dict:", image_dict)
+    print ("image_dict:", image_dict.keys())
     #exit()
 
     print (args.only_pred_file)

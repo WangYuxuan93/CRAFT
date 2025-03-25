@@ -30,6 +30,7 @@ def get_image_paths(root_dir):
     
     # 遍历第一层目录（按数字递增的文件夹）
     for first_level in sorted(os.listdir(root_dir), key=lambda x: int(x) if x.isdigit() else float('inf')):
+        print (first_level)
         first_level_path = os.path.join(root_dir, first_level)
         
         if not os.path.isdir(first_level_path):
@@ -43,7 +44,7 @@ def get_image_paths(root_dir):
         # 获取 labeled 文件夹中的所有 PNG 图片（排除 main.png）
         image_files = [
             os.path.join(labeled_path, img) for img in os.listdir(labeled_path)
-            if img.endswith(".png") and not img.startswith("main")
+            if (img.endswith(".png") or img.endswith(".tif")) and not img.startswith("main")
         ]
         
         # 存入字典，使用第一层文件夹的路径作为 key
@@ -395,7 +396,7 @@ if __name__ == '__main__':
     """ For test images in a folder """
     #image_list, _, _ = file_utils.get_files(args.test_folder)
     image_dict = get_image_paths(args.test_folder)
-    #print ("image_dict:", image_dict)
+    print ("image_dict:", image_dict.keys())
     #exit()
 
     print (args.only_pred_file)
@@ -427,7 +428,7 @@ if __name__ == '__main__':
     for img_dir, img_paths in image_dict.items():
         for k, image_path in enumerate(img_paths):
             #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
-            print (image_path)
+            #print (image_path)
             image = imgproc.loadImage(image_path)
             result_folder = os.path.join(img_dir, "visualization")
             output_folder = os.path.join(img_dir, "bbox")
