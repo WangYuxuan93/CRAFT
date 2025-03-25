@@ -43,7 +43,7 @@ def get_image_paths(root_dir):
         # 获取 labeled 文件夹中的所有 PNG 图片（排除 main.png）
         image_files = [
             os.path.join(labeled_path, img) for img in os.listdir(labeled_path)
-            if img.endswith(".png") and img != "main.png"
+            if img.endswith(".png") and not img.startswith("main")
         ]
         
         # 存入字典，使用第一层文件夹的路径作为 key
