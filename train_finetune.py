@@ -281,6 +281,20 @@ def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
     
     return net, optimizer, scheduler, epoch, iter_num
 
+def load_model(model_path, net, device="cpu"):
+    checkpoint = torch.load(model_path, map_location=device)
+    # 去掉 "module." 前缀
+    new_state_dict = {}
+    for k, v in checkpoint['model_state_dict'].items():
+        if k.startswith("module."):
+            new_state_dict[k[7:]] = v  # 去掉 "module."
+        else:
+            new_state_dict[k] = v
+
+    # 加载去掉 "module." 的 state_dict
+    net.load_state_dict(new_state_dict)
+    return net
+
 if __name__ == "__main__":
 
     batch_size = args.batch_size
@@ -307,17 +321,19 @@ if __name__ == "__main__":
         if os.path.exists(args.output_model_dir):
             net, optimizer, scheduler, epoch, iter_num = load_latest_model(args.output_model_dir, net, optimizer, scheduler, device)
             logging.info(f'Resuming from epoch {epoch}, iteration {iter_num}')
-        elif args.cuda:
-            logging.info(f'Loading pretrained params from: {pretrained_model}')
-            net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
         else:
             logging.info(f'Loading pretrained params from: {pretrained_model}')
-            net.load_state_dict(copyStateDict(torch.load(pretrained_model, map_location='cpu')))
-        #if args.cuda:
-        #    net, optimizer, scheduler, epoch, iter_num, lr = load_model(pretrained_model, net, optimizer, scheduler, device)
-        #else:
-        #    net, optimizer, scheduler, epoch, iter_num, lr = load_model(pretrained_model, net, optimizer, scheduler, device='cpu')
-
+            checkpoint = torch.load(pretrained_model)
+            if 'model_state_dict' in checkpoint:
+                if args.cuda:
+                    net = load_model(pretrained_model, net)
+                else:
+                    net = load_model(pretrained_model, net, device="cpu")
+            else:
+                if args.cuda:
+                    net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
+                else:
+                    net.load_state_dict(copyStateDict(torch.load(pretrained_model, map_location='cpu')))
 
     if args.cuda:
         net = net.cuda()
