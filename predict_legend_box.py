@@ -30,7 +30,6 @@ def get_image_paths(root_dir):
     
     # 遍历第一层目录（按数字递增的文件夹）
     for first_level in sorted(os.listdir(root_dir), key=lambda x: int(x) if x.isdigit() else float('inf')):
-        print (first_level)
         first_level_path = os.path.join(root_dir, first_level)
         
         if not os.path.isdir(first_level_path):
@@ -396,7 +395,7 @@ if __name__ == '__main__':
     """ For test images in a folder """
     #image_list, _, _ = file_utils.get_files(args.test_folder)
     image_dict = get_image_paths(args.test_folder)
-    print ("image_dict:", image_dict.keys())
+    #print ("image_dict:", image_dict.keys())
     #exit()
 
     print (args.only_pred_file)
@@ -425,7 +424,7 @@ if __name__ == '__main__':
     #print("net.eval")
     #print(image_list)
     # load data
-    for img_dir, img_paths in image_dict.items():
+    for img_dir, img_paths in tqdm(image_dict.items()):
         for k, image_path in enumerate(img_paths):
             #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
             #print (image_path)

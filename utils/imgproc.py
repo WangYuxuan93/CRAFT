@@ -30,16 +30,17 @@ def loadImage(img_file, debug=False):
     if img_file.endswith(".tif"):
         img = load_palette_tif_to_rgb(img_file)
     else:
-        img = io.imread(img_file, cv2.IMREAD_COLOR)
+        img = io.imread(img_file)
     
     if debug:
+        print (img_file)
         print("Image shape: {}, dtype: {}".format(img.shape, img.dtype))
     
     if img.shape[0] == 2: img = img[0]
     if len(img.shape) == 2 : img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    #if img.shape[2] == 4:   img = img[:,:,:3]
-    if img.ndim == 3 and img.shape[2] == 4:
-        img = img[:, :, :3]
+    if img.shape[2] == 4:   img = img[:,:,:3]
+    #if img.ndim == 3 and img.shape[2] == 4:
+    #    img = img[:, :, :3]
 
     # normalize if needed
     if img.dtype != np.uint8:
