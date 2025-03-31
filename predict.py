@@ -323,18 +323,34 @@ def overlay_mask_and_boxes(input_image, mask, boxes, alpha=0.5):
 
     return overlay_image_with_boxes
 
-def load_model(model_path, net, device="cpu"):
-    checkpoint = torch.load(model_path, map_location=device)
-    # 去掉 "module." 前缀
-    new_state_dict = {}
-    for k, v in checkpoint['model_state_dict'].items():
-        if k.startswith("module."):
-            new_state_dict[k[7:]] = v  # 去掉 "module."
-        else:
-            new_state_dict[k] = v
+def load_model(model_path, net, cuda=False):
+    #checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path)
 
-    # 加载去掉 "module." 的 state_dict
-    net.load_state_dict(new_state_dict)
+    if 'model_state_dict' in checkpoint:
+        # 去掉 "module." 前缀
+        new_state_dict = {}
+        for k, v in checkpoint['model_state_dict'].items():
+            if k.startswith("module."):
+                new_state_dict[k[7:]] = v  # 去掉 "module."
+            else:
+                new_state_dict[k] = v
+        
+        if cuda:
+            # 加载去掉 "module." 的 state_dict
+            net.load_state_dict(new_state_dict)
+            net = net.cuda()
+        else:
+            net.load_state_dict(new_state_dict)
+    else:
+        if cuda:
+            net.load_state_dict(copyStateDict(torch.load(model_path)))
+            net = net.cuda()
+            net = torch.nn.DataParallel(net)
+            cudnn.benchmark = False
+        else:
+            net.load_state_dict(copyStateDict(torch.load(model_path, map_location='cpu')))
+
     return net
 
 def load_text_detect(images_path, labels_path):
@@ -393,6 +409,64 @@ def expand_box(coords, scale=1.1, image_shape=None):
     #exit()
     return expanded_coords
 
+
+def predict_image_with_boxes(image_input,
+                             model=None,
+                             model_path='final_net_param.pth',
+                             text_threshold=0.3,
+                             low_text=0.3,
+                             link_threshold=0.4,
+                             canvas_size=4096,
+                             mag_ratio=1.5,
+                             target_size=768,
+                             use_target_size=False,
+                             scale=1.0,
+                             use_cuda=False,
+                             debug=False):
+    """
+    单张图片文本检测接口，返回检测框。
+    
+    参数:
+    - image_input: 图像路径或 OpenCV 图像 (numpy.ndarray)
+    - model_path: 模型路径
+    - 其他参数参考 argparse
+    
+    返回:
+    - boxes: 检测框列表，每个框是形如 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] 的点集
+    """
+    if model is None:
+        # 1. 加载模型
+        device = 'cuda' if use_cuda and torch.cuda.is_available() else 'cpu'
+        net = CRAFT()
+        print('Loading weights from checkpoint (' + model_path + ')')
+        
+        net = load_model(model_path, net, cuda=use_cuda)
+        net.eval()
+    else:
+        net = model
+
+    # 2. 读取图像
+    if isinstance(image_input, str):
+        image = imgproc.loadImage(image_input)
+    elif isinstance(image_input, np.ndarray):
+        image = image_input
+    else:
+        raise ValueError("image_input 应该是文件路径字符串或OpenCV图像")
+
+    # 3. 推理
+    if use_target_size:
+        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, text_threshold, link_threshold, low_text, use_cuda, target_size, debug=debug)
+    else:
+        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, text_threshold, link_threshold, low_text, use_cuda, canvas_size, mag_ratio, debug=debug)
+
+    # 4. 扩展 box（如果需要）
+    if scale != 1:
+        image_shape = image.shape
+        bboxes = [expand_box(coords, scale=args.scale, image_shape=image_shape) for coords in bboxes]
+
+    return bboxes, ret_score_text, score_text, target_ratio, img_resized
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
     parser.add_argument('--trained_model', default='final_net_param.pth', type=str, help='pretrained model')
@@ -415,7 +489,7 @@ if __name__ == '__main__':
 
     """ For test images in a folder """
     image_list, _, _ = file_utils.get_files(args.test_folder)
-
+    print (image_list)
     #测试结果保存路径
     result_folder = args.result_folder
     if not os.path.isdir(result_folder):
@@ -426,23 +500,9 @@ if __name__ == '__main__':
     net = CRAFT()     # initialize
     print('Loading weights from checkpoint (' + args.trained_model + ')')
     
-    checkpoint = torch.load(args.trained_model)
-    if 'model_state_dict' in checkpoint:
-        if args.cuda:
-            net = load_model(args.trained_model, net)
-            net = net.cuda()
-        else:
-            net = load_model(args.trained_model, net, device="cpu")
-    else:
-        if args.cuda:
-            net.load_state_dict(copyStateDict(torch.load(args.trained_model)))
-            net = net.cuda()
-            net = torch.nn.DataParallel(net)
-            cudnn.benchmark = False
-        else:
-            net.load_state_dict(copyStateDict(torch.load(args.trained_model, map_location='cpu')))
-
+    net = load_model(args.trained_model, net, cuda=args.cuda)
     net.eval()
+
     t = time.time()
     #print("net.eval")
     #print(image_list)
@@ -452,17 +512,32 @@ if __name__ == '__main__':
         image = imgproc.loadImage(image_path)
 
         #bboxes, polys, score_text = test_net(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.poly, refine_net)
-        if args.use_target_size:
-            bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.target_size)
-        else:
-            bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
+        #if args.use_target_size:
+        #    bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.target_size)
+        #else:
+        #    bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
         
-        if args.scale != 1:
-            image_shape = image.shape
+        #if args.scale != 1:
+        #    image_shape = image.shape
             #print ("image shape:",image_shape)
             #print ("origin bboxes:",bboxes)
-            bboxes = [expand_box(coords, scale=args.scale, image_shape=image_shape) for coords in bboxes]
+        #    bboxes = [expand_box(coords, scale=args.scale, image_shape=image_shape) for coords in bboxes]
             #print ("expanded bboxes:",bboxes)
+
+        bboxes, ret_score_text, score_text, target_ratio, img_resized = predict_image_with_boxes(
+            image_input=image,
+            model=net,
+            model_path=args.trained_model,
+            text_threshold=args.text_threshold,
+            low_text=args.low_text,
+            link_threshold=args.link_threshold,
+            canvas_size=args.canvas_size,
+            mag_ratio=args.mag_ratio,
+            target_size=args.target_size,
+            use_target_size=args.use_target_size,
+            scale=args.scale,
+            use_cuda=args.cuda
+        )
         if not args.only_pred_file:
             # save score text
             filename, file_ext = os.path.splitext(os.path.basename(image_path))

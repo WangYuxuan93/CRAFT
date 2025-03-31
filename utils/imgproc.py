@@ -7,13 +7,55 @@ MIT License
 import numpy as np
 from skimage import io
 import cv2
+import matplotlib.pyplot as plt
+from tifffile import TiffFile
 
-def loadImage(img_file):
-    img = io.imread(img_file)           # RGB order
+def load_palette_tif_to_rgb(path):
+    with TiffFile(path) as tif:
+        page = tif.pages[0]
+        image = page.asarray()
+        palette = page.colormap  # shape (3, 256)
+
+        # Normalize palette from 0-65535 to 0-255
+        palette = (palette / 256).astype(np.uint8)
+
+        # Convert palette indices to RGB image
+        rgb_image = np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
+        for c in range(3):  # R, G, B
+            rgb_image[..., c] = palette[c][image]
+
+        return rgb_image
+
+def loadImage(img_file, debug=False):
+    if img_file.endswith(".tif"):
+        img = load_palette_tif_to_rgb(img_file)
+    else:
+        img = io.imread(img_file, cv2.IMREAD_COLOR)
+    
+    if debug:
+        print("Image shape: {}, dtype: {}".format(img.shape, img.dtype))
+    
     if img.shape[0] == 2: img = img[0]
     if len(img.shape) == 2 : img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    if img.shape[2] == 4:   img = img[:,:,:3]
+    #if img.shape[2] == 4:   img = img[:,:,:3]
+    if img.ndim == 3 and img.shape[2] == 4:
+        img = img[:, :, :3]
+
+    # normalize if needed
+    if img.dtype != np.uint8:
+        img = img.astype(np.float32)
+        img -= img.min()
+        img /= img.max()
+        img *= 255
+        img = img.astype(np.uint8)
+
     img = np.array(img)
+
+    if debug:
+        plt.imshow(img)
+        plt.title("Loaded Image")
+        plt.axis('off')
+        plt.show()
 
     return img
 
