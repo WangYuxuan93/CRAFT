@@ -467,6 +467,40 @@ def predict_image_with_boxes(image_input,
     return bboxes, ret_score_text, score_text, target_ratio, img_resized
 
 
+def predict_legend_box(image, model_path="model/td-bs8_8gpu-v1/finetuned_epoch_9_iter700.pth", use_cuda=True):
+    bboxes, ret_score_text, score_text, target_ratio, img_resized = predict_image_with_boxes(
+            image_input=image,
+            model=None,
+            model_path=model_path,
+            text_threshold=0.3,
+            low_text=0.3,
+            link_threshold=0.4,
+            canvas_size=4096,
+            mag_ratio=10,
+            target_size=768,
+            use_target_size=False,
+            scale=1,
+            use_cuda=use_cuda
+        )
+    return bboxes
+
+def predict_main_map_box(image, model_path="model/main_map-bs8_8gpu-v1/finetuned_epoch_7_iter460.pth", use_cuda=True):
+    bboxes, ret_score_text, score_text, target_ratio, img_resized = predict_image_with_boxes(
+            image_input=image,
+            model=None,
+            model_path=model_path,
+            text_threshold=0.3,
+            low_text=0.3,
+            link_threshold=0.4,
+            canvas_size=4096,
+            mag_ratio=1,
+            target_size=768,
+            use_target_size=True,
+            scale=1,
+            use_cuda=use_cuda
+        )
+    return bboxes
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
     parser.add_argument('--trained_model', default='final_net_param.pth', type=str, help='pretrained model')
