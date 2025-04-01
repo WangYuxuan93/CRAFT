@@ -8,27 +8,48 @@ import numpy as np
 from skimage import io
 import cv2
 import matplotlib.pyplot as plt
-from tifffile import TiffFile
+from tifffile import TiffFile, TiffFileError
+from PIL import Image
 
-def load_palette_tif_to_rgb(path):
+def load_tif_to_rgb(path):
     with TiffFile(path) as tif:
         page = tif.pages[0]
         image = page.asarray()
-        palette = page.colormap  # shape (3, 256)
+        
+        if page.colormap is not None:
+            # Paletted image
+            palette = page.colormap  # shape: (3, N)
+            palette = (palette / palette.max() * 255).astype(np.uint8)
+            if image.max() >= palette.shape[1]:
+                raise ValueError("Palette index exceeds colormap range.")
 
-        # Normalize palette from 0-65535 to 0-255
-        palette = (palette / 256).astype(np.uint8)
-
-        # Convert palette indices to RGB image
-        rgb_image = np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
-        for c in range(3):  # R, G, B
-            rgb_image[..., c] = palette[c][image]
-
-        return rgb_image
+            h, w = image.shape
+            rgb_image = np.zeros((h, w, 3), dtype=np.uint8)
+            for c in range(3):
+                rgb_image[..., c] = palette[c][image]
+            return rgb_image
+        else:
+            # Non-paletted image, likely RGB or RGBA
+            if image.ndim == 2:
+                # Grayscale -> stack to RGB
+                return np.stack([image]*3, axis=-1)
+            elif image.shape[2] == 3:
+                # Already RGB
+                return image.astype(np.uint8)
+            elif image.shape[2] == 4:
+                # RGBA -> drop alpha
+                return image[:, :, :3].astype(np.uint8)
+            else:
+                raise ValueError(f"Unsupported image shape: {image.shape}")
 
 def loadImage(img_file, debug=False):
     if img_file.endswith(".tif"):
-        img = load_palette_tif_to_rgb(img_file)
+        try:
+            img = load_tif_to_rgb(img_file)
+        except (TiffFileError, ValueError, IndexError):
+            print (f"Failed loading {img_file}")
+            img = Image.open(img_file).convert("RGB")
+            img = np.array(img)
     else:
         img = io.imread(img_file)
     
