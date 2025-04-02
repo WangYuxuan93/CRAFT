@@ -375,6 +375,16 @@ def expand_box(coords, scale=1.1, image_shape=None):
     #exit()
     return expanded_coords
 
+def safe_imwrite(filename, image):
+    ext = os.path.splitext(filename)[1]
+    success, buffer = cv2.imencode(ext, image)
+    if success:
+        buffer.tofile(filename)  # 正确处理中文路径
+        return True
+    else:
+        print(f"[ERROR] Failed to encode image: {filename}")
+        return False
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
     parser.add_argument('--trained_model', default='final_net_param.pth', type=str, help='pretrained model')
@@ -465,18 +475,21 @@ if __name__ == '__main__':
                 real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
                 real_mask_file = result_folder + "/" + filename + '_mask.png'
             
-                cv2.imwrite(real_mask_file, real_mask)
+                #cv2.imwrite(real_mask_file, real_mask)
+                safe_imwrite(real_mask_file, real_mask)
 
                 box_image = overlay_boxes_on_image(image, bboxes)
                 box_image_file = result_folder + "/" + filename + '_box_overlay.jpg'
-                cv2.imwrite(box_image_file, box_image)
+                #cv2.imwrite(box_image_file, box_image)
+                safe_imwrite(box_image_file, box_image)
 
                 mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
-                cv2.imwrite(mask_file, ret_score_text)
+                #cv2.imwrite(mask_file, ret_score_text)
+                safe_imwrite(mask_file, ret_score_text)
 
-                mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
-                mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
-                cv2.imwrite(mask_and_box_image_file, mask_and_box_image)
+                #mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
+                #mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
+                #cv2.imwrite(mask_and_box_image_file, mask_and_box_image)
 
             file_utils.saveResult(image_path, image[:,:,::-1], bboxes, dirname=output_folder)
 
