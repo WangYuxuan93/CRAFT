@@ -22,16 +22,17 @@ def get_ohem_num(labels_region, labels_affinity, device):
         numNeg_affinity = numPos_affinity * 3
     return numPos_region, numNeg_region, numPos_affinity, numNeg_affinity
 
+"""
 def cal_synthText_loss(criterion, score_text, score_link, labels_region, labels_affinity, device):
-    """
-    计算synthText强数据集的loss
-    :param criterion: 损失函数
-    :param score_text: 网络输出的region score
-    :param score_link: 网络输出的affinity score
-    :param labels_region: 训练标签region score
-    :param labels_affinity: 训练标签affinity score
-    :return: loss
-    """
+    
+    #计算synthText强数据集的loss
+    #:param criterion: 损失函数
+    #:param score_text: 网络输出的region score
+    #:param score_link: 网络输出的affinity score
+    #:param labels_region: 训练标签region score
+    #:param labels_affinity: 训练标签affinity score
+    #:return: loss
+ 
 
     numPos_region, numNeg_region, numPos_affinity, numNeg_affinity = get_ohem_num(labels_region, labels_affinity,
                                                                                   device)
@@ -55,6 +56,56 @@ def cal_synthText_loss(criterion, score_text, score_link, labels_region, labels_
     loss = loss1_fg + loss1_bg + loss2_fg + loss2_bg
 
     return loss
+"""
+
+def cal_synthText_loss(criterion, score_text, score_link, labels_region, labels_affinity, device):
+    
+    #计算synthText强数据集的loss
+    #:param criterion: 损失函数
+    #:param score_text: 网络输出的region score
+    #:param score_link: 网络输出的affinity score
+    #:param labels_region: 训练标签region score
+    #:param labels_affinity: 训练标签affinity score
+    #:return: loss
+
+    numPos_region, numNeg_region, numPos_affinity, numNeg_affinity = get_ohem_num(labels_region, labels_affinity,
+                                                                                  device)
+    
+    #_labels_region = labels_region.cpu()
+    #_labels_affinity = labels_affinity.cpu()
+    pos_mask_region = labels_region > 0.1
+    neg_mask_region = labels_region <= 0.1
+    #联合损失 ohem loss
+    #取全部的postive pixels的loss
+    #loss1_fg = criterion(score_text[np.where(_labels_region > 0.1)], labels_region[np.where(_labels_region > 0.1)])
+    loss1_fg = criterion(score_text[pos_mask_region], labels_region[pos_mask_region])
+    loss1_fg = torch.sum(loss1_fg) / numPos_region.to(torch.float32)
+    #loss1_bg = criterion(score_text[np.where(_labels_region <= 0.1)], labels_region[np.where(_labels_region <= 0.1)])
+    #loss1_bg, _ = loss1_bg.sort(descending=True)
+    #loss1_bg = torch.sum(loss1_bg[:numNeg_region]) / numNeg_region.to(torch.float32)
+    loss1_bg_all = criterion(score_text[neg_mask_region], labels_region[neg_mask_region])
+    #selects the pixel with high loss in the negative pixels
+    loss1_bg_sorted, _ = loss1_bg_all.sort(descending=True)
+    loss1_bg = torch.sum(loss1_bg_sorted[:numNeg_region]) / numNeg_region.to(torch.float32)
+
+    pos_mask_aff = labels_affinity > 0.1
+    neg_mask_aff = labels_affinity <= 0.1
+    #loss2_fg = criterion(score_link[np.where(_labels_affinity > 0.1)], labels_affinity[np.where(_labels_affinity > 0.1)])
+    #loss2_fg = torch.sum(loss2_fg) / numPos_affinity.to(torch.float32)
+    loss2_fg = criterion(score_link[pos_mask_aff], labels_affinity[pos_mask_aff])
+    loss2_fg = torch.sum(loss2_fg) / numPos_affinity.to(torch.float32)
+
+    #loss2_bg = criterion(score_link[np.where(_labels_affinity <= 0.1)], labels_affinity[np.where(_labels_affinity <= 0.1)])
+    #loss2_bg, _ = loss2_bg.sort(descending=True)
+    #loss2_bg = torch.sum(loss2_bg[:numNeg_affinity]) / numNeg_affinity.to(torch.float32)
+    loss2_bg_all = criterion(score_link[neg_mask_aff], labels_affinity[neg_mask_aff])
+    loss2_bg_sorted, _ = loss2_bg_all.sort(descending=True)
+    loss2_bg = torch.sum(loss2_bg_sorted[:numNeg_affinity]) / numNeg_affinity.to(torch.float32)
+    #联合loss
+    loss = loss1_fg + loss1_bg + loss2_fg + loss2_bg
+
+    return loss
+    
 
 def cal_fakeData_loss(criterion, score_text, score_link, labels_region, labels_affinity, sc_map, device):
     """
