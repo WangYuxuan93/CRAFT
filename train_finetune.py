@@ -304,7 +304,10 @@ if __name__ == "__main__":
     test_interval = args.test_interval #测试间隔
     pretrained_model = args.pretrained_model #预训练模型
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
-    net = CRAFT(pretrained=True)  # craft模型
+    if args.from_scratch:
+        net = CRAFT(pretrained=True)  # craft模型
+    else:
+        net = CRAFT(pretrained=False)
 
     optimizer = optim.Adam(net.parameters(), lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)

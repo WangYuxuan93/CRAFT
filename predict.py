@@ -67,7 +67,7 @@ def test_net(net, image, text_threshold, link_threshold, low_text, cuda):
 
     return boxes, ret_score_text
 
-def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio, refine_net=None, debug=False):
+def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio, refine_net=None, output_char_box=True, debug=False):
     t0 = time.time()
 
     # resize
@@ -105,7 +105,7 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canv
     t1 = time.time()
 
     # Post-processing
-    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
+    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, output_char_box=output_char_box)
     if debug:
         print ("score_text:", score_text.shape)
     # coordinate adjustment
@@ -122,7 +122,7 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canv
 
     return boxes, ret_score_text, score_text, target_ratio, img_resized
 
-def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, target_size=768, refine_net=None, debug=False):
+def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, target_size=768, refine_net=None, output_char_box=True, debug=False):
     t0 = time.time()
 
     # resize
@@ -165,7 +165,7 @@ def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, targ
     t1 = time.time()
 
     # Post-processing
-    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
+    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, output_char_box=output_char_box)
     if debug:
         print ("score_text:", score_text.shape)
     # coordinate adjustment
@@ -422,6 +422,7 @@ def predict_image_with_boxes(image_input,
                              use_target_size=False,
                              scale=1.0,
                              use_cuda=False,
+                             output_char_box=True,
                              debug=False):
     """
     单张图片文本检测接口，返回检测框。
@@ -455,9 +456,9 @@ def predict_image_with_boxes(image_input,
 
     # 3. 推理
     if use_target_size:
-        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, text_threshold, link_threshold, low_text, use_cuda, target_size, debug=debug)
+        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, text_threshold, link_threshold, low_text, use_cuda, target_size, output_char_box=output_char_box, debug=debug)
     else:
-        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, text_threshold, link_threshold, low_text, use_cuda, canvas_size, mag_ratio, debug=debug)
+        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, text_threshold, link_threshold, low_text, use_cuda, canvas_size, mag_ratio, output_char_box=output_char_box, debug=debug)
 
     # 4. 扩展 box（如果需要）
     if scale != 1:
@@ -518,9 +519,11 @@ if __name__ == '__main__':
     parser.add_argument('--target_size', default=768, type=int, help='image size for inference')
     parser.add_argument('--use_target_size', default=False, type=str2bool, help='resize the image to target size')
     parser.add_argument('--scale', default=1, type=float, help='box expanding scale')
+    parser.add_argument('--output_word_box', default=False, action='store_true', help='output word bbox')
     args = parser.parse_args()
 
-
+    output_char_box = not args.output_word_box
+    
     """ For test images in a folder """
     image_list, _, _ = file_utils.get_files(args.test_folder)
     print (image_list)
@@ -570,7 +573,8 @@ if __name__ == '__main__':
             target_size=args.target_size,
             use_target_size=args.use_target_size,
             scale=args.scale,
-            use_cuda=args.cuda
+            use_cuda=args.cuda,
+            output_char_box=output_char_box
         )
         if not args.only_pred_file:
             # save score text

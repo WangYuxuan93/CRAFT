@@ -128,10 +128,12 @@ def getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text)
     return det, labels, mapper
 
 
-def getDetBoxes(textmap, linkmap, text_threshold, link_threshold, low_text):
-    #boxes, labels, mapper = getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text)
-    boxes, labels, mapper = getCharBoxes_core(textmap, text_threshold, low_text)
-
+def getDetBoxes(textmap, linkmap, text_threshold, link_threshold, low_text, output_char_box=True):
+    if output_char_box:
+        boxes, labels, mapper = getCharBoxes_core(textmap, text_threshold, low_text)
+    else:
+        boxes, labels, mapper = getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text)
+    
     return boxes
 
 def adjustResultCoordinates(polys, ratio_w, ratio_h, ratio_net = 2):
