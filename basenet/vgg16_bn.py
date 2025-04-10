@@ -26,10 +26,19 @@ def init_weights(modules):
             m.bias.data.zero_()
 
 class vgg16_bn(torch.nn.Module):
-    def __init__(self, pretrained=True, freeze=True):
+    def __init__(self, pretrained=True, freeze=True, vgg_path=None):
         super(vgg16_bn, self).__init__()
         model_urls['vgg16_bn'] = model_urls['vgg16_bn'].replace('https://', 'http://')
-        vgg_pretrained_features = models.vgg16_bn(pretrained=pretrained).features
+
+        if pretrained and vgg_path is not None:
+            # 从本地加载预训练模型
+            vgg = models.vgg16_bn()
+            state_dict = torch.load(vgg_path)
+            vgg.load_state_dict(state_dict)
+            vgg_pretrained_features = vgg.features
+        else:
+            vgg_pretrained_features = models.vgg16_bn(pretrained=pretrained).features
+            
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()

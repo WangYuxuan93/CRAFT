@@ -41,6 +41,7 @@ parser.add_argument('--batch_size', default=16, type=int, help='training data ba
 parser.add_argument('--test_batch_size', default=16, type=int, help='training data batch size')
 parser.add_argument('--cuda', default=False, type=str2bool, help='Use cuda to train model')
 parser.add_argument('--pretrained_model', default='model/craft_mlt_25k.pth', type=str, help='pretrained model path')
+parser.add_argument('--vgg_path', default='model/vgg16_bn-6c64b313.pth', type=str, help='pretrained vgg model path')
 parser.add_argument('--from_scratch', default=False, type=str2bool, help='Train from scratch')
 parser.add_argument('--lr', default=3e-5, type=float, help='initial learning rate')
 parser.add_argument('--gamma', default=0.8, type=float, help='gamma for learning rate step scheduler')
@@ -305,7 +306,7 @@ if __name__ == "__main__":
     pretrained_model = args.pretrained_model #预训练模型
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
     if args.from_scratch:
-        net = CRAFT(pretrained=True)  # craft模型
+        net = CRAFT(pretrained=True, vgg_path=args.vgg_path)  # craft模型
     else:
         net = CRAFT(pretrained=False)
 
