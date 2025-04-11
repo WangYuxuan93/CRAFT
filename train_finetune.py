@@ -50,6 +50,7 @@ parser.add_argument('--epochs', default=20, type=int, help='training epochs')
 parser.add_argument('--test_interval', default=40, type=int, help='test interval')
 parser.add_argument('--log_file', default='training.log', type=str, help='Output training log')
 parser.add_argument('--output_model_dir', default='finetune/', type=str, help='Output model directory')
+parser.add_argument('--num_workers', default=16, type=int, help='number of data loading cpu workers')
 args = parser.parse_args()
 
 
@@ -170,8 +171,8 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                                     label_transform=label_transform,
                                     images_dir=os.path.join(args.td_root, 'valid_images'),
                                     labels_dir=os.path.join(args.td_root, 'valid_labels'))
-        train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True)
-        val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False)
+        train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.cuda)
+        val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=args.cuda)
         logging.info('##### Data Type: Text Detection, Data Number: train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))
         iters_per_epoch = len(td_train_data) // batch_size
         logging.info('Number of iters per epoch: {}'.format(iters_per_epoch))
