@@ -18,7 +18,7 @@ from utils.cal_loss import cal_fakeData_loss, cal_synthText_loss
 from dataset.synthDataset import SynthDataset
 from dataset.icdar2013_dataset import Icdar2013Dataset
 from dataset.icdar2017_dataset import Icdar2017Dataset
-from dataset.textdetect_dataset import TextDetectDataset
+from dataset.textdetect_dataset import TextDetectDataset, PackedTextDetectDataset
 import argparse
 import logging
 from predict import inference
@@ -33,6 +33,8 @@ parser.add_argument('--synth_dir', default='H:/Dataset/SynthText/SynthText', typ
 parser.add_argument('--ic13_root', default='/home/brooklyn/ICDAR/icdar2013', type=str, help='icdar2013 data dir')
 parser.add_argument('--ic17_root', default='data/ICDAR2017', type=str, help='icdar2017 data dir')
 parser.add_argument('--td_root', default='data/char_lvl', type=str, help='Text detect data dir')
+parser.add_argument('--train_cache_path', default=None, type=str, help='train dataset cache path')
+parser.add_argument('--valid_cache_path', default=None, type=str, help='valid dataset cache path')
 parser.add_argument('--test_folder', default='data/char_lvl', type=str, help='Test data dir')
 parser.add_argument('--eval_iou', default=False, type=str2bool, help='Use iou in valid set')
 parser.add_argument('--data_type', default='td', type=str, help='data type (td, ic17)')
@@ -163,14 +165,24 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         logging.info('Number of iters per epoch: {}'.format(iters_per_epoch))
         logging.info('Total iters: {}'.format(iters_per_epoch * epochs))
     elif type == "td":
-        td_train_data = TextDetectDataset(image_transform=image_transform,
-                                    label_transform=label_transform,
-                                    images_dir=os.path.join(args.td_root, 'train_images'),
-                                    labels_dir=os.path.join(args.td_root, 'train_labels'))
-        td_val_data = TextDetectDataset(image_transform=image_transform,
-                                    label_transform=label_transform,
-                                    images_dir=os.path.join(args.td_root, 'valid_images'),
-                                    labels_dir=os.path.join(args.td_root, 'valid_labels'))
+        if args.train_cache_path is not None and args.valid_cache_path is not None:
+            td_train_data = PackedTextDetectDataset(image_transform=image_transform,
+                                        label_transform=label_transform,
+                                        images_dir=os.path.join(args.td_root, 'train_images'),
+                                        cache_path=args.train_cache_path)
+            td_val_data = PackedTextDetectDataset(image_transform=image_transform,
+                                        label_transform=label_transform,
+                                        images_dir=os.path.join(args.td_root, 'valid_images'),
+                                        cache_path=args.valid_cache_path)
+        else:
+            td_train_data = TextDetectDataset(image_transform=image_transform,
+                                        label_transform=label_transform,
+                                        images_dir=os.path.join(args.td_root, 'train_images'),
+                                        labels_dir=os.path.join(args.td_root, 'train_labels'))
+            td_val_data = TextDetectDataset(image_transform=image_transform,
+                                        label_transform=label_transform,
+                                        images_dir=os.path.join(args.td_root, 'valid_images'),
+                                        labels_dir=os.path.join(args.td_root, 'valid_labels'))
         train_loader = torch.utils.data.DataLoader(td_train_data, batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.cuda)
         val_loader = torch.utils.data.DataLoader(td_val_data, batch_size=test_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=args.cuda)
         logging.info('##### Data Type: Text Detection, Data Number: train: {}, valid: {}'.format(len(td_train_data), len(td_val_data)))

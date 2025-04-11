@@ -16,7 +16,6 @@ def load_text_detect(images_path, labels_path):
     return image_names, label_names
 
 def get_text_detect_char_box(label_path):
-
     fh = open(label_path, 'r', encoding="utf-8")
     char_boxes_by_word = []
     char_boxes = []
@@ -185,3 +184,34 @@ class TextDetectDataset(torch.utils.data.Dataset):
         region_scores = gaussian_generator.gen(heat_map_size, char_boxes_list)
         return region_scores
 
+
+class PackedTextDetectDataset(torch.utils.data.Dataset):
+    def __init__(self, image_transform=None, label_transform=None, images_dir=None, cache_path=None):
+        self.images_dir = images_dir
+        self.image_transform = image_transform
+        self.label_transform = label_transform
+        print ("in packed data")
+        data = torch.load(cache_path)
+        self.region_scores = data["region_scores"]
+        self.affinity_scores = data["affinity_scores"]
+        self.sc_maps = data["sc_maps"]
+        self.image_names = data["image_names"]
+
+    def __len__(self):
+        return len(self.image_names)
+
+    def __getitem__(self, idx):
+        image = Image.open(os.path.join(self.images_dir, self.image_names[idx]))
+
+        region = Image.fromarray(self.region_scores[idx].numpy())
+        affinity = Image.fromarray(self.affinity_scores[idx].numpy())
+        sc_map = Image.fromarray(self.sc_maps[idx].numpy())
+
+        if self.image_transform:
+            image = self.image_transform(image)
+        if self.label_transform:
+            region = self.label_transform(region)
+            affinity = self.label_transform(affinity)
+            sc_map = self.label_transform(sc_map)
+
+        return image, region, affinity, sc_map
