@@ -215,3 +215,64 @@ class PackedTextDetectDataset(torch.utils.data.Dataset):
             sc_map = self.label_transform(sc_map)
 
         return image, region, affinity, sc_map
+
+
+class LazyPackedTextDetectDataset(torch.utils.data.Dataset):
+    def __init__(self, image_transform=None, label_transform=None, images_dir=None, chunks_dir=None):
+        self.chunks_dir = chunks_dir
+        self.images_dir = images_dir
+        self.image_transform = image_transform
+        self.label_transform = label_transform
+
+        self.index_map = []  # 每个元素为: (chunk_file_path, local_idx)
+        self.chunk_cache = {}  # 缓存当前 chunk 文件
+
+        chunk_files = sorted([f for f in os.listdir(chunks_dir) if f.endswith('.pt')])
+        if not chunk_files:
+            raise ValueError(f"No .pt files found in {chunks_dir}")
+
+        for chunk_file in chunk_files:
+            chunk_path = os.path.join(chunks_dir, chunk_file)
+            data = torch.load(chunk_path, map_location="cpu")
+            for local_idx in range(len(data["image_names"])):
+                self.index_map.append((chunk_path, local_idx))
+
+        print(f"Indexed {len(self.index_map)} samples from {len(chunk_files)} chunks")
+
+    def __len__(self):
+        return len(self.index_map)
+
+    def _load_chunk_if_needed(self, chunk_path):
+        if self.chunk_cache.get("path") != chunk_path:
+            if not os.path.exists(chunk_path):
+                raise FileNotFoundError(f"Chunk file not found: {chunk_path}")
+            self.chunk_cache["data"] = torch.load(chunk_path, map_location="cpu")
+            self.chunk_cache["path"] = chunk_path
+
+    def __getitem__(self, idx):
+        chunk_path, local_idx = self.index_map[idx]
+        self._load_chunk_if_needed(chunk_path)
+
+        data = self.chunk_cache["data"]
+        img_name = data["image_names"][local_idx]
+        region_tensor = data["region_scores"][local_idx]
+        affinity_tensor = data["affinity_scores"][local_idx]
+        sc_tensor = data["sc_maps"][local_idx]
+
+        try:
+            image = Image.open(os.path.join(self.images_dir, img_name))
+        except Exception as e:
+            raise RuntimeError(f"Failed to load image {img_name}: {e}")
+
+        region = Image.fromarray(region_tensor.numpy())
+        affinity = Image.fromarray(affinity_tensor.numpy())
+        sc_map = Image.fromarray(sc_tensor.numpy())
+
+        if self.image_transform:
+            image = self.image_transform(image)
+        if self.label_transform:
+            region = self.label_transform(region)
+            affinity = self.label_transform(affinity)
+            sc_map = self.label_transform(sc_map)
+
+        return image, region, affinity, sc_map
