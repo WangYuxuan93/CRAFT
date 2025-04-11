@@ -79,6 +79,8 @@ def find_existing_chunks(output_dir):
 def cache_all_data_parallel(images_dir, labels_dir, output_dir, num_workers=None, chunk_size=1000):
     start_time = time.time()
 
+    os.makedirs(output_dir, exist_ok=True)
+
     image_names = sorted([f for f in os.listdir(images_dir) if f.lower().endswith((".jpg", ".png"))])
     label_names = sorted([f for f in os.listdir(labels_dir) if f.endswith(".txt")])
     assert len(image_names) == len(label_names), "Image and label count mismatch!"
