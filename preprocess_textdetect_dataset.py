@@ -69,7 +69,7 @@ def cache_all_data_parallel(images_dir, labels_dir, output_file, num_workers=Non
 
     if num_workers is None:
         total_cpu = cpu_count()
-        num_workers = max(1, min(16, total_cpu - 1))
+        num_workers = max(1, min(15, total_cpu - 1))
         logging.info(f"Auto-selected num_workers = {num_workers} (Total CPU cores = {total_cpu})")
 
     logging.info(f"Starting parallel preprocessing with {num_workers} workers...")
@@ -93,15 +93,17 @@ def cache_all_data_parallel(images_dir, labels_dir, output_file, num_workers=Non
 
 # -------------------------- CLI -----------------------------
 if __name__ == "__main__":
-    setup_logger("preprocess.log")
-
+    
     parser = argparse.ArgumentParser(description="Parallel preprocessing and caching of text detection dataset")
     parser.add_argument("--images_dir", type=str, required=True, help="Directory of input images")
     parser.add_argument("--labels_dir", type=str, required=True, help="Directory of text labels (.txt)")
     parser.add_argument("--output_file", type=str, default="cache/all_data.pt", help="Path to output .pt cache file")
-    parser.add_argument("--num_workers", type=int, default=None, help="Number of parallel workers to use (default: auto-detect, max 16)")
+    parser.add_argument("--num_workers", type=int, default=None, help="Number of parallel workers to use (default: auto-detect, max 15)")
+    parser.add_argument("--log_file", type=str, default="preprocess.log", help="Path to output log file")
 
     args = parser.parse_args()
+
+    setup_logger(args.log_file)
 
     cache_all_data_parallel(
         images_dir=args.images_dir,
