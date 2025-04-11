@@ -89,6 +89,7 @@ def save_model(epoch, iter_num, model_save_path, optimizer_state_dict, scheduler
     logging.info(f'Model saved at {model_save_path}')
 
 # Load function - to load model with saved hyperparameters
+"""
 def load_model(model_path, net, optimizer, scheduler, device="cpu"):
     checkpoint = torch.load(model_path, map_location=device)
     net.load_state_dict(checkpoint['model_state_dict'])
@@ -98,7 +99,7 @@ def load_model(model_path, net, optimizer, scheduler, device="cpu"):
     iteration = checkpoint['iteration']
     logging.info(f"Loaded model from {model_path}, epoch {epoch}, iteration {iteration}")
     return net, optimizer, scheduler, epoch, iteration
-
+"""
 
 def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_model_path, output_model_dir, save_weight=True, device="cpu",type="td", optimizer=None, scheduler=None, start_epoch=0, start_iter=0):
     logging.info("cuda: {}".format(args.cuda))
@@ -249,6 +250,20 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         # set start iter back to 0 after 1 epoch
         start_iter = 0
 
+def load_model(model_path, net, device="cpu"):
+    checkpoint = torch.load(model_path, map_location=device)
+    # 去掉 "module." 前缀
+    new_state_dict = {}
+    for k, v in checkpoint['model_state_dict'].items():
+        if k.startswith("module."):
+            new_state_dict[k[7:]] = v  # 去掉 "module."
+        else:
+            new_state_dict[k] = v
+
+    # 加载去掉 "module." 的 state_dict
+    net.load_state_dict(new_state_dict)
+    return net
+
 
 def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
     # 获取output_model_dir下所有的模型文件（.pth）
@@ -274,6 +289,7 @@ def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
     
     # 加载模型和optimizer状态
     checkpoint = torch.load(latest_model, map_location=device)
+    net = load_model(latest_model, net, device=device)
     net.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -282,19 +298,7 @@ def load_latest_model(output_model_dir, net, optimizer, scheduler, device):
     
     return net, optimizer, scheduler, epoch, iter_num
 
-def load_model(model_path, net, device="cpu"):
-    checkpoint = torch.load(model_path, map_location=device)
-    # 去掉 "module." 前缀
-    new_state_dict = {}
-    for k, v in checkpoint['model_state_dict'].items():
-        if k.startswith("module."):
-            new_state_dict[k[7:]] = v  # 去掉 "module."
-        else:
-            new_state_dict[k] = v
 
-    # 加载去掉 "module." 的 state_dict
-    net.load_state_dict(new_state_dict)
-    return net
 
 if __name__ == "__main__":
 
@@ -330,9 +334,9 @@ if __name__ == "__main__":
             checkpoint = torch.load(pretrained_model)
             if 'model_state_dict' in checkpoint:
                 if args.cuda:
-                    net = load_model(pretrained_model, net)
+                    net = load_model(pretrained_model, net, device=device)
                 else:
-                    net = load_model(pretrained_model, net, device="cpu")
+                    net = load_model(pretrained_model, net, device=device)
             else:
                 if args.cuda:
                     net.load_state_dict(copyStateDict(torch.load(pretrained_model)))
