@@ -166,20 +166,22 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
         logging.info('Total iters: {}'.format(iters_per_epoch * epochs))
     elif type == "td":
         if args.train_cache_path is not None and args.valid_cache_path is not None:
-            if args.train_cache_path.endswith("pt") and args.valid_cache_path.endswith("pt"):
+            if args.train_cache_path.endswith("pt"):
                 td_train_data = PackedTextDetectDataset(image_transform=image_transform,
                                             label_transform=label_transform,
                                             images_dir=os.path.join(args.td_root, 'train_images'),
                                             cache_path=args.train_cache_path)
-                td_val_data = PackedTextDetectDataset(image_transform=image_transform,
-                                            label_transform=label_transform,
-                                            images_dir=os.path.join(args.td_root, 'valid_images'),
-                                            cache_path=args.valid_cache_path)
             else:
                 td_train_data = LazyPackedTextDetectDataset(image_transform=image_transform,
                                             label_transform=label_transform,
                                             images_dir=os.path.join(args.td_root, 'train_images'),
                                             chunks_dir=args.train_cache_path)
+            if args.valid_cache_path.endswith("pt"):
+                td_val_data = PackedTextDetectDataset(image_transform=image_transform,
+                                            label_transform=label_transform,
+                                            images_dir=os.path.join(args.td_root, 'valid_images'),
+                                            cache_path=args.valid_cache_path)
+            else:
                 td_val_data = LazyPackedTextDetectDataset(image_transform=image_transform,
                                             label_transform=label_transform,
                                             images_dir=os.path.join(args.td_root, 'valid_images'),
