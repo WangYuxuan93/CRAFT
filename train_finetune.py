@@ -18,7 +18,7 @@ from utils.cal_loss import cal_fakeData_loss, cal_synthText_loss
 from dataset.synthDataset import SynthDataset
 from dataset.icdar2013_dataset import Icdar2013Dataset
 from dataset.icdar2017_dataset import Icdar2017Dataset
-from dataset.textdetect_dataset import TextDetectDataset, PackedTextDetectDataset, LazyPackedTextDetectDataset
+from dataset.textdetect_dataset import TextDetectDataset, PackedTextDetectDataset, SingleFilePackedDataset
 import argparse
 import logging
 from predict import inference
@@ -172,20 +172,20 @@ def train(net, epochs, batch_size, test_batch_size, lr, test_interval, test_mode
                                             images_dir=os.path.join(args.td_root, 'train_images'),
                                             cache_path=args.train_cache_path)
             else:
-                td_train_data = LazyPackedTextDetectDataset(image_transform=image_transform,
+                td_train_data = SingleFilePackedDataset(image_transform=image_transform,
                                             label_transform=label_transform,
                                             images_dir=os.path.join(args.td_root, 'train_images'),
-                                            chunks_dir=args.train_cache_path)
+                                            pt_dir=args.train_cache_path)
             if args.valid_cache_path.endswith("pt"):
                 td_val_data = PackedTextDetectDataset(image_transform=image_transform,
                                             label_transform=label_transform,
                                             images_dir=os.path.join(args.td_root, 'valid_images'),
                                             cache_path=args.valid_cache_path)
             else:
-                td_val_data = LazyPackedTextDetectDataset(image_transform=image_transform,
+                td_val_data = SingleFilePackedDataset(image_transform=image_transform,
                                             label_transform=label_transform,
                                             images_dir=os.path.join(args.td_root, 'valid_images'),
-                                            chunks_dir=args.valid_cache_path)
+                                            pt_dir=args.valid_cache_path)
         else:
             td_train_data = TextDetectDataset(image_transform=image_transform,
                                         label_transform=label_transform,

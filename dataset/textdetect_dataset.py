@@ -185,6 +185,43 @@ class TextDetectDataset(torch.utils.data.Dataset):
         return region_scores
 
 
+class SingleFilePackedDataset(torch.utils.data.Dataset):
+    def __init__(self, image_transform=None, label_transform=None, images_dir=None, pt_dir=None):
+        self.pt_dir = pt_dir
+        self.images_dir = images_dir
+        self.image_transform = image_transform
+        self.label_transform = label_transform
+
+        self.pt_files = sorted([
+            os.path.join(pt_dir, f)
+            for f in os.listdir(pt_dir)
+            if f.endswith(".pt")
+        ])
+        if not self.pt_files:
+            raise ValueError(f"No .pt files found in {pt_dir}")
+
+    def __len__(self):
+        return len(self.pt_files)
+
+    def __getitem__(self, idx):
+        data = torch.load(self.pt_files[idx], map_location="cpu")
+        img_name = data["img_name"]
+
+        image = Image.open(os.path.join(self.images_dir, img_name)).convert("RGB")
+        region = Image.fromarray(data["region_scores"].numpy())
+        affinity = Image.fromarray(data["affinity_scores"].numpy())
+        sc_map = Image.fromarray(data["sc_map"].numpy())
+
+        if self.image_transform:
+            image = self.image_transform(image)
+        if self.label_transform:
+            region = self.label_transform(region)
+            affinity = self.label_transform(affinity)
+            sc_map = self.label_transform(sc_map)
+
+        return image, region, affinity, sc_map
+
+
 class PackedTextDetectDataset(torch.utils.data.Dataset):
     def __init__(self, image_transform=None, label_transform=None, images_dir=None, cache_path=None):
         self.images_dir = images_dir
