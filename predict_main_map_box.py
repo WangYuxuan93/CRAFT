@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
+from torchvision.ops import nms
 
 import cv2
 import numpy as np
@@ -25,7 +26,7 @@ from evaluation2 import read_txt_file
 
 from collections import defaultdict
 
-def get_image_paths(root_dir):
+def get_image_paths_v0(root_dir):
     grouped_paths = defaultdict(list)
     
     # 遍历第一层目录（按数字递增的文件夹）
@@ -55,11 +56,37 @@ def get_image_paths(root_dir):
     
     return dict(grouped_paths)
 
+def get_image_paths(root_dir):
+    grouped_paths = defaultdict(list)
+    
+    # 遍历第一层目录
+    for first_level in os.listdir(root_dir):
+        first_level_path = os.path.join(root_dir, first_level)
+        
+        if not os.path.isdir(first_level_path):
+            continue
+        
+        # image 文件夹路径
+        labeled_path = os.path.join(first_level_path, "image")
+        if not os.path.isdir(labeled_path):
+            continue
+        
+        # 获取 image 文件夹中的图像文件
+        image_files = [
+            os.path.join(labeled_path, img) for img in os.listdir(labeled_path)
+            if img.endswith("tif") or img.endswith("png")
+        ]
+        
+        # 存入字典，使用第一层文件夹的路径作为 key
+        if image_files:
+            grouped_paths[first_level].extend(image_files)
+    
+    return dict(grouped_paths)
 
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
 
-def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio, refine_net=None, debug=False):
+def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio, refine_net=None, output_char_box=True, debug=False):
     t0 = time.time()
 
     # resize
@@ -97,7 +124,7 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canv
     t1 = time.time()
 
     # Post-processing
-    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
+    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, output_char_box=output_char_box)
     if debug:
         print ("score_text:", score_text.shape)
     # coordinate adjustment
@@ -114,7 +141,7 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canv
 
     return boxes, ret_score_text, score_text, target_ratio, img_resized
 
-def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, target_size=768, refine_net=None, debug=False):
+def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, target_size=768, refine_net=None, output_char_box=True, debug=False):
     t0 = time.time()
 
     # resize
@@ -157,7 +184,7 @@ def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, targ
     t1 = time.time()
 
     # Post-processing
-    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
+    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, output_char_box=output_char_box)
     if debug:
         print ("score_text:", score_text.shape)
     # coordinate adjustment
@@ -385,8 +412,95 @@ def safe_imwrite(filename, image):
         print(f"[ERROR] Failed to encode image: {filename}")
         return False
 
+def polygon_to_bbox(box):
+    x, y, w, h = cv2.boundingRect(np.array(box).astype(np.int32))
+    return [x, y, x + w, y + h]
+
+def is_mostly_covered(inner_box, outer_box, cover_threshold=0.9):
+    """
+    判断 inner_box 是否有一定比例（如90%）被 outer_box 覆盖
+
+    参数：
+    - inner_box: 被测试是否被覆盖的多边形
+    - outer_box: 另一个用于覆盖检测的多边形
+    - cover_threshold: 被覆盖面积比例的阈值，默认0.9
+
+    返回：
+    - True：inner_box 超过阈值被 outer_box 覆盖
+    - False：否则不认为被包含
+    """
+    inner = np.array(inner_box, dtype=np.float32)
+    outer = np.array(outer_box, dtype=np.float32)
+
+    # 计算相交区域
+    retval, intersect_poly = cv2.intersectConvexConvex(inner, outer)
+    if retval is None or retval <= 0:
+        return False  # 没有交集
+
+    # inner_box 的面积
+    area_inner = cv2.contourArea(inner)
+    if area_inner == 0:
+        return False
+
+    # 交集面积占比
+    if retval / area_inner >= cover_threshold:
+        return True
+    else:
+        return False
+
+def merge_boxes(boxes1, boxes2, iou_threshold=0.7, cover_threshold=0.9):
+    """
+    合并两个模型的检测框：
+    1. 删除完全包含的框（只保留大的）
+    2. NMS 去重，主模型框优先（通过分数控制）
+
+    返回最终框列表
+    """
+    all_boxes = list(boxes1) + list(boxes2)
+    num_boxes = len(all_boxes)
+
+    # 构造模型来源对应的得分：主模型分数高，Zero-Shot 分数低
+    scores = [1.0] * len(boxes1) + [0.5] * len(boxes2)
+
+    # Step 1: 过滤完全包含关系的框
+    to_remove = set()
+    for i in range(num_boxes):
+        if i in to_remove:
+            continue
+        for j in range(num_boxes):
+            if i == j or j in to_remove:
+                continue
+            box_i = all_boxes[i]
+            box_j = all_boxes[j]
+
+            if is_mostly_covered(box_i, box_j, cover_threshold=cover_threshold):
+                to_remove.add(i)
+            elif is_mostly_covered(box_j, box_i, cover_threshold=cover_threshold):
+                to_remove.add(j)
+
+    filtered_boxes = [box for idx, box in enumerate(all_boxes) if idx not in to_remove]
+    filtered_scores = [score for idx, score in enumerate(scores) if idx not in to_remove]
+
+    if not filtered_boxes:
+        return []
+
+    # Step 2: 执行 NMS（主模型得分高 → 优先保留）
+    rect_boxes = [polygon_to_bbox(box) for box in filtered_boxes]
+    boxes_tensor = torch.tensor(rect_boxes, dtype=torch.float32)
+    scores_tensor = torch.tensor(filtered_scores, dtype=torch.float32)
+
+    keep_indices = nms(boxes_tensor, scores_tensor, iou_threshold)
+    final_boxes = [filtered_boxes[i] for i in keep_indices]
+
+    return final_boxes
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
+    parser.add_argument('--zeroshot_model', default=None, type=str, help='path to the zeroshot model')
+    parser.add_argument('--merge_iou_threshold', default=0.7, type=float, help='merge iou threshold for nms')
+    parser.add_argument('--merge_cover_threshold', default=0.9, type=float, help='merge cover threshold for nms')
     parser.add_argument('--trained_model', default='final_net_param.pth', type=str, help='pretrained model')
     parser.add_argument('--text_threshold', default=0.3, type=float, help='text confidence threshold')
     parser.add_argument('--low_text', default=0.3, type=float, help='text low-bound score')
@@ -403,8 +517,10 @@ if __name__ == '__main__':
     parser.add_argument('--use_target_size', default=False, type=str2bool, help='resize the image to target size')
     parser.add_argument('--scale', default=1, type=float, help='box expanding scale')
     parser.add_argument('--output_to_origin_folder', default=False, action='store_true', help='Whether output to the original folder')
+    parser.add_argument('--output_word_box', default=False, action='store_true', help='output word bbox')
     args = parser.parse_args()
 
+    output_char_box = not args.output_word_box
 
     """ For test images in a folder """
     #image_list, _, _ = file_utils.get_files(args.test_folder)
@@ -432,8 +548,30 @@ if __name__ == '__main__':
             cudnn.benchmark = False
         else:
             net.load_state_dict(copyStateDict(torch.load(args.trained_model, map_location='cpu')))
-
     net.eval()
+
+    # Load zeroshot model if specified
+    zeroshot_net = None
+    if args.zeroshot_model:
+        zeroshot_net = CRAFT()
+        print('Loading weights from Zero-Shot checkpoint (' + args.zeroshot_model + ')')
+        checkpoint = torch.load(args.zeroshot_model)
+        if 'model_state_dict' in checkpoint:
+            if args.cuda:
+                zeroshot_net = load_model(args.zeroshot_model, zeroshot_net)
+                zeroshot_net = zeroshot_net.cuda()
+            else:
+                zeroshot_net = load_model(args.zeroshot_model, zeroshot_net, device="cpu")
+        else:
+            if args.cuda:
+                zeroshot_net.load_state_dict(copyStateDict(torch.load(args.zeroshot_model)))
+                zeroshot_net = zeroshot_net.cuda()
+                zeroshot_net = torch.nn.DataParallel(zeroshot_net)
+                cudnn.benchmark = False
+            else:
+                zeroshot_net.load_state_dict(copyStateDict(torch.load(args.zeroshot_model, map_location='cpu')))
+        zeroshot_net.eval()
+
     t = time.time()
     #print("net.eval")
     #print(image_list)
@@ -458,10 +596,37 @@ if __name__ == '__main__':
             if not os.path.isdir(output_folder):
                 os.makedirs(output_folder)
             if args.use_target_size:
-                bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.target_size)
+                bboxes1, ret_score_text1, score_text1, target_ratio, img_resized = test_net_v3(
+                    net, image, args.text_threshold, args.link_threshold, args.low_text,
+                    args.cuda, args.target_size, output_char_box=output_char_box)
+                
+                bboxes2 = []
+                if zeroshot_net is not None:
+                    bboxes2, ret_score_text2, score_text2, _, _ = test_net_v3(
+                        zeroshot_net, image, args.text_threshold, args.link_threshold, args.low_text,
+                        args.cuda, args.target_size, output_char_box=output_char_box)
             else:
-                bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
-            
+                bboxes1, ret_score_text1, score_text1, target_ratio, img_resized = test_net_v2(
+                    net, image, args.text_threshold, args.link_threshold, args.low_text,
+                    args.cuda, args.canvas_size, args.mag_ratio, output_char_box=output_char_box)
+                
+                bboxes2 = []
+                if zeroshot_net is not None:
+                    bboxes2, ret_score_text2, score_text2, _, _ = test_net_v2(
+                        zeroshot_net, image, args.text_threshold, args.link_threshold, args.low_text,
+                        args.cuda, args.canvas_size, args.mag_ratio, output_char_box=output_char_box)
+
+            # merge results
+            bboxes = merge_boxes(bboxes1, bboxes2, iou_threshold=args.merge_iou_threshold, cover_threshold=args.merge_cover_threshold)
+
+            # 合并 score_text（取最大）
+            if zeroshot_net is not None:
+                merged_score_text = np.maximum(score_text1, score_text2)
+                score_text = merged_score_text
+            else:
+                score_text = score_text1
+
+
             if args.scale != 1:
                 image_shape = image.shape
                 #print ("image shape:",image_shape)
@@ -472,20 +637,32 @@ if __name__ == '__main__':
                 # save score text
                 filename, file_ext = os.path.splitext(os.path.basename(image_path))
 
+                model_name = os.path.basename(os.path.dirname(args.trained_model))
+                #print (model_name)
+                #exit()
+                scale_value = args.scale  # 获取scale的值
+                box_type = "wordbox" if args.output_word_box else "charbox"
+
+                # 在文件名中加入模型名和scale值作为前缀
+                real_mask_file = os.path.join(result_folder, f"{box_type}_{filename}_mask_{model_name}_sacle-{scale_value}.png")
+                box_image_file = os.path.join(result_folder, f"{box_type}_{filename}_box_overlay_{model_name}_sacle-{scale_value}.png")
+                #mask_file = os.path.join(result_folder, f"{box_type}_{filename}_heatmap_{model_name}_sacle-{scale_value}_res.png")
+
+
                 real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
-                real_mask_file = result_folder + "/" + filename + '_mask.png'
+                #real_mask_file = result_folder + "/" + filename + '_mask.png'
             
                 #cv2.imwrite(real_mask_file, real_mask)
                 safe_imwrite(real_mask_file, real_mask)
 
                 box_image = overlay_boxes_on_image(image, bboxes)
-                box_image_file = result_folder + "/" + filename + '_box_overlay.jpg'
+                #box_image_file = result_folder + "/" + filename + '_box_overlay.jpg'
                 #cv2.imwrite(box_image_file, box_image)
                 safe_imwrite(box_image_file, box_image)
 
-                mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
+                #mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
                 #cv2.imwrite(mask_file, ret_score_text)
-                safe_imwrite(mask_file, ret_score_text)
+                #safe_imwrite(mask_file, ret_score_text)
 
                 #mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
                 #mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'

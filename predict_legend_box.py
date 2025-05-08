@@ -58,7 +58,7 @@ def get_image_paths(root_dir):
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
 
-def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio, refine_net=None, debug=False):
+def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio, refine_net=None, output_char_box=True, debug=False):
     t0 = time.time()
 
     # resize
@@ -96,7 +96,7 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canv
     t1 = time.time()
 
     # Post-processing
-    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
+    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, output_char_box=output_char_box)
     if debug:
         print ("score_text:", score_text.shape)
     # coordinate adjustment
@@ -113,7 +113,7 @@ def test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canv
 
     return boxes, ret_score_text, score_text, target_ratio, img_resized
 
-def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, target_size=768, refine_net=None, debug=False):
+def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, target_size=768, refine_net=None, output_char_box=True, debug=False):
     t0 = time.time()
 
     # resize
@@ -156,7 +156,7 @@ def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, targ
     t1 = time.time()
 
     # Post-processing
-    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text)
+    boxes = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, output_char_box=output_char_box)
     if debug:
         print ("score_text:", score_text.shape)
     # coordinate adjustment
@@ -401,8 +401,10 @@ if __name__ == '__main__':
     parser.add_argument('--target_size', default=768, type=int, help='image size for inference')
     parser.add_argument('--use_target_size', default=False, type=str2bool, help='resize the image to target size')
     parser.add_argument('--scale', default=1, type=float, help='box expanding scale')
+    parser.add_argument('--output_word_box', default=False, action='store_true', help='output word bbox')
     args = parser.parse_args()
 
+    output_char_box = not args.output_word_box
 
     """ For test images in a folder """
     #image_list, _, _ = file_utils.get_files(args.test_folder)
@@ -448,9 +450,9 @@ if __name__ == '__main__':
             if not os.path.isdir(output_folder):
                 os.mkdir(output_folder)
             if args.use_target_size:
-                bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.target_size)
+                bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.target_size, output_char_box=output_char_box)
             else:
-                bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
+                bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio, output_char_box=output_char_box)
             
             if args.scale != 1:
                 image_shape = image.shape
