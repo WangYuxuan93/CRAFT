@@ -332,6 +332,7 @@ def overlay_mask_and_boxes(input_image, mask, boxes, alpha=0.5):
 
     return overlay_image_with_boxes
 
+"""
 def load_model(model_path, net, device="cpu"):
     checkpoint = torch.load(model_path, map_location=device)
     # 去掉 "module." 前缀
@@ -345,6 +346,7 @@ def load_model(model_path, net, device="cpu"):
     # 加载去掉 "module." 的 state_dict
     net.load_state_dict(new_state_dict)
     return net
+"""
 
 def load_text_detect(images_path, labels_path):
     image_names = os.listdir(images_path)
@@ -495,6 +497,118 @@ def merge_boxes(boxes1, boxes2, iou_threshold=0.7, cover_threshold=0.9):
     return final_boxes
 
 
+def load_model(model_path, cuda=False):
+    #checkpoint = torch.load(model_path, map_location=device)
+    net = CRAFT()
+    checkpoint = torch.load(model_path)
+
+    if 'model_state_dict' in checkpoint:
+        # 去掉 "module." 前缀
+        new_state_dict = {}
+        for k, v in checkpoint['model_state_dict'].items():
+            if k.startswith("module."):
+                new_state_dict[k[7:]] = v  # 去掉 "module."
+            else:
+                new_state_dict[k] = v
+        
+        if cuda:
+            # 加载去掉 "module." 的 state_dict
+            net.load_state_dict(new_state_dict)
+            net = net.cuda()
+        else:
+            net.load_state_dict(new_state_dict)
+    else:
+        if cuda:
+            net.load_state_dict(copyStateDict(torch.load(model_path)))
+            net = net.cuda()
+            net = torch.nn.DataParallel(net)
+            cudnn.benchmark = False
+        else:
+            net.load_state_dict(copyStateDict(torch.load(model_path, map_location='cpu')))
+    net.eval()
+    return net
+
+def load_models(trained_model_path, zeroshot_model_path=None, use_cuda=False):
+    """
+    加载主模型和可选的 zero-shot 模型。
+
+    参数：
+    - trained_model_path: 主模型路径
+    - zeroshot_model_path: zero-shot 模型路径（可选）
+    - use_cuda: 是否使用 GPU
+
+    返回：
+    - net: 主模型
+    - zeroshot_net: zero-shot 模型（或 None）
+    """
+    print(f"Loading main model from {trained_model_path}")
+    net = load_model(trained_model_path, cuda=use_cuda)
+
+    zeroshot_net = None
+    if zeroshot_model_path:
+        print(f"Loading zero-shot model from {zeroshot_model_path}")
+        zeroshot_net = load_model(zeroshot_model_path, cuda=use_cuda)
+
+    return net, zeroshot_net
+
+
+def infer_single_image(
+    image,
+    net,
+    zeroshot_net,
+    use_target_size=False,
+    target_size=768,
+    canvas_size=1280,
+    mag_ratio=1.5,
+    text_threshold=0.7,
+    link_threshold=0.4,
+    low_text=0.4,
+    use_cuda=False,
+    output_char_box=True,
+    merge_iou_threshold=0.7,
+    merge_cover_threshold=0.9,
+    scale=1.0
+):
+    """
+    使用主模型和（可选）Zero-shot 模型对单张图像进行推理。
+
+    返回：
+    - bboxes: 合并后的检测框
+    - score_text: 融合得分图
+    - img_resized: 缩放后的图像
+    - target_ratio: 缩放比率
+    """
+    if use_target_size:
+        bboxes1, _, score_text1, target_ratio, img_resized = test_net_v3(
+            net, image, text_threshold, link_threshold, low_text,
+            use_cuda, target_size, output_char_box=output_char_box)
+
+        bboxes2 = []
+        if zeroshot_net is not None:
+            bboxes2, _, score_text2, _, _ = test_net_v3(
+                zeroshot_net, image, text_threshold, link_threshold, low_text,
+                use_cuda, target_size, output_char_box=output_char_box)
+    else:
+        bboxes1, _, score_text1, target_ratio, img_resized = test_net_v2(
+            net, image, text_threshold, link_threshold, low_text,
+            use_cuda, canvas_size, mag_ratio, output_char_box=output_char_box)
+
+        bboxes2 = []
+        if zeroshot_net is not None:
+            bboxes2, _, score_text2, _, _ = test_net_v2(
+                zeroshot_net, image, text_threshold, link_threshold, low_text,
+                use_cuda, canvas_size, mag_ratio, output_char_box=output_char_box)
+
+    # 合并框
+    bboxes = merge_boxes(bboxes1, bboxes2, iou_threshold=merge_iou_threshold, cover_threshold=merge_cover_threshold)
+    score_text = np.maximum(score_text1, score_text2) if zeroshot_net is not None else score_text1
+
+    # 扩框（可选）
+    if scale != 1:
+        bboxes = [expand_box(box, scale=scale, image_shape=image.shape) for box in bboxes]
+
+    return bboxes, score_text, img_resized, target_ratio
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
@@ -523,58 +637,16 @@ if __name__ == '__main__':
     output_char_box = not args.output_word_box
 
     """ For test images in a folder """
-    #image_list, _, _ = file_utils.get_files(args.test_folder)
     image_dict = get_image_paths(args.test_folder)
-    #print ("image_dict:", image_dict.keys())
-    #exit()
 
-    print (args.only_pred_file)
     # load net
-    net = CRAFT()     # initialize
-    print('Loading weights from checkpoint (' + args.trained_model + ')')
-    
-    checkpoint = torch.load(args.trained_model)
-    if 'model_state_dict' in checkpoint:
-        if args.cuda:
-            net = load_model(args.trained_model, net)
-            net = net.cuda()
-        else:
-            net = load_model(args.trained_model, net, device="cpu")
-    else:
-        if args.cuda:
-            net.load_state_dict(copyStateDict(torch.load(args.trained_model)))
-            net = net.cuda()
-            net = torch.nn.DataParallel(net)
-            cudnn.benchmark = False
-        else:
-            net.load_state_dict(copyStateDict(torch.load(args.trained_model, map_location='cpu')))
-    net.eval()
-
-    # Load zeroshot model if specified
-    zeroshot_net = None
-    if args.zeroshot_model:
-        zeroshot_net = CRAFT()
-        print('Loading weights from Zero-Shot checkpoint (' + args.zeroshot_model + ')')
-        checkpoint = torch.load(args.zeroshot_model)
-        if 'model_state_dict' in checkpoint:
-            if args.cuda:
-                zeroshot_net = load_model(args.zeroshot_model, zeroshot_net)
-                zeroshot_net = zeroshot_net.cuda()
-            else:
-                zeroshot_net = load_model(args.zeroshot_model, zeroshot_net, device="cpu")
-        else:
-            if args.cuda:
-                zeroshot_net.load_state_dict(copyStateDict(torch.load(args.zeroshot_model)))
-                zeroshot_net = zeroshot_net.cuda()
-                zeroshot_net = torch.nn.DataParallel(zeroshot_net)
-                cudnn.benchmark = False
-            else:
-                zeroshot_net.load_state_dict(copyStateDict(torch.load(args.zeroshot_model, map_location='cpu')))
-        zeroshot_net.eval()
+    net, zeroshot_net = load_models(
+        trained_model_path=args.trained_model,
+        zeroshot_model_path=args.zeroshot_model if hasattr(args, 'zeroshot_model') else None,
+        use_cuda=args.cuda
+    )
 
     t = time.time()
-    #print("net.eval")
-    #print(image_list)
     # load data
     for img_id, img_paths in tqdm(image_dict.items()):
         for k, image_path in enumerate(img_paths):
@@ -595,44 +667,23 @@ if __name__ == '__main__':
                 os.makedirs(result_folder)
             if not os.path.isdir(output_folder):
                 os.makedirs(output_folder)
-            if args.use_target_size:
-                bboxes1, ret_score_text1, score_text1, target_ratio, img_resized = test_net_v3(
-                    net, image, args.text_threshold, args.link_threshold, args.low_text,
-                    args.cuda, args.target_size, output_char_box=output_char_box)
-                
-                bboxes2 = []
-                if zeroshot_net is not None:
-                    bboxes2, ret_score_text2, score_text2, _, _ = test_net_v3(
-                        zeroshot_net, image, args.text_threshold, args.link_threshold, args.low_text,
-                        args.cuda, args.target_size, output_char_box=output_char_box)
-            else:
-                bboxes1, ret_score_text1, score_text1, target_ratio, img_resized = test_net_v2(
-                    net, image, args.text_threshold, args.link_threshold, args.low_text,
-                    args.cuda, args.canvas_size, args.mag_ratio, output_char_box=output_char_box)
-                
-                bboxes2 = []
-                if zeroshot_net is not None:
-                    bboxes2, ret_score_text2, score_text2, _, _ = test_net_v2(
-                        zeroshot_net, image, args.text_threshold, args.link_threshold, args.low_text,
-                        args.cuda, args.canvas_size, args.mag_ratio, output_char_box=output_char_box)
 
-            # merge results
-            bboxes = merge_boxes(bboxes1, bboxes2, iou_threshold=args.merge_iou_threshold, cover_threshold=args.merge_cover_threshold)
+            bboxes, score_text, img_resized, target_ratio = infer_single_image(image=image,
+                                                                                net=net,
+                                                                                zeroshot_net=zeroshot_net,
+                                                                                use_target_size=args.use_target_size,
+                                                                                target_size=args.target_size,
+                                                                                canvas_size=args.canvas_size,
+                                                                                mag_ratio=args.mag_ratio,
+                                                                                text_threshold=args.text_threshold,
+                                                                                link_threshold=args.link_threshold,
+                                                                                low_text=args.low_text,
+                                                                                use_cuda=args.cuda,
+                                                                                output_char_box=not args.output_word_box,
+                                                                                merge_iou_threshold=args.merge_iou_threshold,
+                                                                                merge_cover_threshold=args.merge_cover_threshold,
+                                                                                scale=args.scale)
 
-            # 合并 score_text（取最大）
-            if zeroshot_net is not None:
-                merged_score_text = np.maximum(score_text1, score_text2)
-                score_text = merged_score_text
-            else:
-                score_text = score_text1
-
-
-            if args.scale != 1:
-                image_shape = image.shape
-                #print ("image shape:",image_shape)
-                #print ("origin bboxes:",bboxes)
-                bboxes = [expand_box(coords, scale=args.scale, image_shape=image_shape) for coords in bboxes]
-                #print ("expanded bboxes:",bboxes)
             if not args.only_pred_file:
                 # save score text
                 filename, file_ext = os.path.splitext(os.path.basename(image_path))
@@ -646,27 +697,14 @@ if __name__ == '__main__':
                 # 在文件名中加入模型名和scale值作为前缀
                 real_mask_file = os.path.join(result_folder, f"{box_type}_{filename}_mask_{model_name}_sacle-{scale_value}.png")
                 box_image_file = os.path.join(result_folder, f"{box_type}_{filename}_box_overlay_{model_name}_sacle-{scale_value}.png")
-                #mask_file = os.path.join(result_folder, f"{box_type}_{filename}_heatmap_{model_name}_sacle-{scale_value}_res.png")
-
 
                 real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
-                #real_mask_file = result_folder + "/" + filename + '_mask.png'
-            
-                #cv2.imwrite(real_mask_file, real_mask)
+
                 safe_imwrite(real_mask_file, real_mask)
 
                 box_image = overlay_boxes_on_image(image, bboxes)
-                #box_image_file = result_folder + "/" + filename + '_box_overlay.jpg'
-                #cv2.imwrite(box_image_file, box_image)
                 safe_imwrite(box_image_file, box_image)
 
-                #mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
-                #cv2.imwrite(mask_file, ret_score_text)
-                #safe_imwrite(mask_file, ret_score_text)
-
-                #mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
-                #mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
-                #cv2.imwrite(mask_and_box_image_file, mask_and_box_image)
 
             file_utils.saveResult(image_path, image[:,:,::-1], bboxes, dirname=output_folder)
 
