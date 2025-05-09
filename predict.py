@@ -22,7 +22,7 @@ from utils import file_utils, craft_utils, imgproc
 from net.craft import CRAFT
 from eval import copyStateDict
 from evaluation2 import read_txt_file
-
+from torchvision.ops import nms
 
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
@@ -323,7 +323,8 @@ def overlay_mask_and_boxes(input_image, mask, boxes, alpha=0.5):
 
     return overlay_image_with_boxes
 
-def load_model(model_path, net, cuda=False):
+def load_model(model_path, cuda=False):
+    net = CRAFT()
     #checkpoint = torch.load(model_path, map_location=device)
     checkpoint = torch.load(model_path)
 
@@ -350,8 +351,31 @@ def load_model(model_path, net, cuda=False):
             cudnn.benchmark = False
         else:
             net.load_state_dict(copyStateDict(torch.load(model_path, map_location='cpu')))
-
+    net.eval()
     return net
+
+def load_models(trained_model_path, zeroshot_model_path=None, use_cuda=False):
+    """
+    加载主模型和可选的 zero-shot 模型。
+
+    参数：
+    - trained_model_path: 主模型路径
+    - zeroshot_model_path: zero-shot 模型路径（可选）
+    - use_cuda: 是否使用 GPU
+
+    返回：
+    - net: 主模型
+    - zeroshot_net: zero-shot 模型（或 None）
+    """
+    print(f"Loading main model from {trained_model_path}")
+    net = load_model(trained_model_path, cuda=use_cuda)
+
+    zeroshot_net = None
+    if zeroshot_model_path:
+        print(f"Loading zero-shot model from {zeroshot_model_path}")
+        zeroshot_net = load_model(zeroshot_model_path, cuda=use_cuda)
+
+    return net, zeroshot_net
 
 def load_text_detect(images_path, labels_path):
     image_names = os.listdir(images_path)
@@ -409,6 +433,7 @@ def expand_box(coords, scale=1.1, image_shape=None):
     #exit()
     return expanded_coords
 
+# ----------------- API -----------------
 
 def predict_image_with_boxes(image_input,
                              model=None,
@@ -501,6 +526,150 @@ def predict_main_map_box(image, model_path="model/main_map-bs8_8gpu-v1/finetuned
             use_cuda=use_cuda
         )
     return bboxes
+
+# ----------------- API -----------------
+
+def polygon_to_bbox(box):
+    x, y, w, h = cv2.boundingRect(np.array(box).astype(np.int32))
+    return [x, y, x + w, y + h]
+
+def is_mostly_covered(inner_box, outer_box, cover_threshold=0.9):
+    """
+    判断 inner_box 是否有一定比例（如90%）被 outer_box 覆盖
+
+    参数：
+    - inner_box: 被测试是否被覆盖的多边形
+    - outer_box: 另一个用于覆盖检测的多边形
+    - cover_threshold: 被覆盖面积比例的阈值，默认0.9
+
+    返回：
+    - True：inner_box 超过阈值被 outer_box 覆盖
+    - False：否则不认为被包含
+    """
+    inner = np.array(inner_box, dtype=np.float32)
+    outer = np.array(outer_box, dtype=np.float32)
+
+    # 计算相交区域
+    retval, intersect_poly = cv2.intersectConvexConvex(inner, outer)
+    if retval is None or retval <= 0:
+        return False  # 没有交集
+
+    # inner_box 的面积
+    area_inner = cv2.contourArea(inner)
+    if area_inner == 0:
+        return False
+
+    # 交集面积占比
+    if retval / area_inner >= cover_threshold:
+        return True
+    else:
+        return False
+    
+def merge_boxes(boxes1, boxes2, iou_threshold=0.7, cover_threshold=0.9):
+    """
+    合并两个模型的检测框：
+    1. 删除完全包含的框（只保留大的）
+    2. NMS 去重，主模型框优先（通过分数控制）
+
+    返回最终框列表
+    """
+    all_boxes = list(boxes1) + list(boxes2)
+    num_boxes = len(all_boxes)
+
+    # 构造模型来源对应的得分：主模型分数高，Zero-Shot 分数低
+    scores = [1.0] * len(boxes1) + [0.5] * len(boxes2)
+
+    # Step 1: 过滤完全包含关系的框
+    to_remove = set()
+    for i in range(num_boxes):
+        if i in to_remove:
+            continue
+        for j in range(num_boxes):
+            if i == j or j in to_remove:
+                continue
+            box_i = all_boxes[i]
+            box_j = all_boxes[j]
+
+            if is_mostly_covered(box_i, box_j, cover_threshold=cover_threshold):
+                to_remove.add(i)
+            elif is_mostly_covered(box_j, box_i, cover_threshold=cover_threshold):
+                to_remove.add(j)
+
+    filtered_boxes = [box for idx, box in enumerate(all_boxes) if idx not in to_remove]
+    filtered_scores = [score for idx, score in enumerate(scores) if idx not in to_remove]
+
+    if not filtered_boxes:
+        return []
+
+    # Step 2: 执行 NMS（主模型得分高 → 优先保留）
+    rect_boxes = [polygon_to_bbox(box) for box in filtered_boxes]
+    boxes_tensor = torch.tensor(rect_boxes, dtype=torch.float32)
+    scores_tensor = torch.tensor(filtered_scores, dtype=torch.float32)
+
+    keep_indices = nms(boxes_tensor, scores_tensor, iou_threshold)
+    final_boxes = [filtered_boxes[i] for i in keep_indices]
+
+    return final_boxes
+
+
+def infer_single_image(
+    image,
+    net,
+    zeroshot_net,
+    use_target_size=False,
+    target_size=768,
+    canvas_size=1280,
+    mag_ratio=1.5,
+    text_threshold=0.7,
+    link_threshold=0.4,
+    low_text=0.4,
+    use_cuda=False,
+    output_char_box=True,
+    merge_iou_threshold=0.7,
+    merge_cover_threshold=0.9,
+    scale=1.0
+):
+    """
+    使用主模型和（可选）Zero-shot 模型对单张图像进行推理。
+
+    返回：
+    - bboxes: 合并后的检测框
+    - score_text: 融合得分图
+    - img_resized: 缩放后的图像
+    - target_ratio: 缩放比率
+    """
+    if use_target_size:
+        bboxes1, _, score_text1, target_ratio, img_resized = test_net_v3(
+            net, image, text_threshold, link_threshold, low_text,
+            use_cuda, target_size, output_char_box=output_char_box)
+
+        bboxes2 = []
+        if zeroshot_net is not None:
+            bboxes2, _, score_text2, _, _ = test_net_v3(
+                zeroshot_net, image, text_threshold, link_threshold, low_text,
+                use_cuda, target_size, output_char_box=output_char_box)
+    else:
+        bboxes1, _, score_text1, target_ratio, img_resized = test_net_v2(
+            net, image, text_threshold, link_threshold, low_text,
+            use_cuda, canvas_size, mag_ratio, output_char_box=output_char_box)
+
+        bboxes2 = []
+        if zeroshot_net is not None:
+            bboxes2, _, score_text2, _, _ = test_net_v2(
+                zeroshot_net, image, text_threshold, link_threshold, low_text,
+                use_cuda, canvas_size, mag_ratio, output_char_box=output_char_box)
+
+    # 合并框
+    bboxes = merge_boxes(bboxes1, bboxes2, iou_threshold=merge_iou_threshold, cover_threshold=merge_cover_threshold)
+    score_text = np.maximum(score_text1, score_text2) if zeroshot_net is not None else score_text1
+
+    # 扩框（可选）
+    if scale != 1:
+        bboxes = [expand_box(box, scale=scale, image_shape=image.shape) for box in bboxes]
+
+    return bboxes, score_text, img_resized, target_ratio
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
