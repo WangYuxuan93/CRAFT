@@ -25,7 +25,7 @@ from evaluation2 import read_txt_file
 
 from collections import defaultdict
 from visualize import generate_text_mask, generate_text_mask, overlay_boxes_on_image
-from predict import infer_single_image, load_models
+from predict import infer_single_image, load_models, safe_imwrite
 
 def get_image_paths_v0(root_dir):
     grouped_paths = defaultdict(list)
@@ -116,17 +116,6 @@ def expand_box(coords, scale=1.1, image_shape=None):
     #print ("expanded_coords:", expanded_coords)
     #exit()
     return expanded_coords
-
-def safe_imwrite(filename, image):
-    ext = os.path.splitext(filename)[1]
-    success, buffer = cv2.imencode(ext, image)
-    if success:
-        buffer.tofile(filename)  # 正确处理中文路径
-        return True
-    else:
-        print(f"[ERROR] Failed to encode image: {filename}")
-        return False
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')

@@ -23,6 +23,8 @@ from net.craft import CRAFT
 from eval import copyStateDict
 from evaluation2 import read_txt_file
 from torchvision.ops import nms
+from visualize import generate_text_mask, generate_text_mask, overlay_boxes_on_image, overlay_mask_and_boxes
+from merge import merge_boxes
 
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
@@ -182,146 +184,6 @@ def test_net_v3(net, image, text_threshold, link_threshold, low_text, cuda, targ
 
     return boxes, ret_score_text, score_text, target_ratio, img_resized
 
-def resize_mask_to_input_size(mask, ratio, image, image_resized, debug=False):
-    """
-    根据给定的 ratio 放大 mask，并去除 padding 部分，使其与输入图像尺寸匹配。
-
-    参数:
-    - mask: 输入的二值化文本区域 mask。
-    - ratio: 缩放比例的倒数。
-    - target_h: 输入图像的高度。
-    - target_w: 输入图像的宽度。
-
-    返回:
-    - resized_mask: 调整为与输入图像相同尺寸的 mask。
-    """
-    target_h32, target_w32 = image_resized.shape[:2]
-    if debug:
-        print ("target 32:", target_h32, target_w32)
-
-    resized_mask32 = cv2.resize(mask, (target_w32, target_h32), interpolation=cv2.INTER_LINEAR)
-    # 使用 ratio 的倒数来计算 mask 应该被放大的尺寸
-    img_height, img_weight = image.shape[:2]
-    target_h, target_w = int(img_height * ratio), int(img_weight * ratio)
-    if debug:
-        print ("target:", target_h, target_w)
-
-    resized_mask_clean = resized_mask32[:target_h, :target_w]
-
-    # 调整 mask 尺寸
-    resized_mask = cv2.resize(resized_mask_clean, (img_weight, img_height), interpolation=cv2.INTER_LINEAR)
-
-    #print (target_h, target_w, target_mask_w, target_mask_h, ratio)
-    if debug:
-        print (resized_mask.shape)
-
-    # 去除 padding 部分，确保 mask 尺寸与输入图像一致
-    #resized_mask = resized_mask[:target_h, :target_w]
-
-    return resized_mask
-
-def generate_text_mask(score_text, low_text, image, image_resized, ratio, interpolation=cv2.INTER_LINEAR, sigma=2):
-    """
-    生成基于文本得分矩阵的二值化 mask，低于 low_text 的像素将被过滤掉。
-
-    参数:
-    - score_text: 输入的文本得分矩阵，表示每个像素属于文本的概率，值在 [0, 1] 范围内。
-    - low_text: 用于二值化的阈值，决定哪些区域是文本，哪些区域是背景。
-    - input_image: 输入图像，用于确定输出 mask 的大小。
-    - square_size: 输出图像的最大尺寸。
-    - interpolation: 图像重采样时使用的插值方法。
-    - sigma: 高斯滤波的标准差，用来平滑图像
-
-    返回:
-    - mask: 二值化后的文本区域 mask，文本区域为 255，其他区域为 0。
-    - resized_mask: 调整为与输入图像相同尺寸的 mask。
-    """
-    # 对 text_score 进行高斯平滑
-    blurred_text_score = cv2.GaussianBlur(score_text, (0, 0), sigma)
-
-    # 使用 low_text 进行二值化，过滤低得分区域
-    mask = np.where(blurred_text_score >= low_text, 255, 0).astype(np.uint8)
-
-    # 调整 mask 的尺寸并去除 padding
-    final_resized_mask = resize_mask_to_input_size(mask, ratio, image, image_resized)
-
-    return final_resized_mask
-
-def overlay_mask_on_image(input_image, text_mask, alpha=0.5):
-    """
-    将 text_mask 以透明度 alpha 叠加在 input_image 上。
-
-    参数:
-    - input_image: 原始图像。
-    - text_mask: 文本区域 mask，值为 0 或 255。
-    - alpha: 透明度，取值范围 0 到 1，默认是 0.5。
-
-    返回:
-    - output_image: 叠加后的图像。
-    """
-    # 确保 mask 是三通道图像，以便与输入图像叠加
-    text_mask_colored = cv2.cvtColor(text_mask, cv2.COLOR_GRAY2BGR)
-
-    # 叠加 mask 和输入图像
-    overlay = cv2.addWeighted(input_image, 1 - alpha, text_mask_colored, alpha, 0)
-
-    return overlay
-
-"""
-def overlay_boxes_on_image(image, boxes, alpha=0.5):
-    # 确保图像为彩色（避免灰度图的错误绘制）
-    if len(image.shape) == 2 or image.shape[2] == 1:
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-
-    # 在图像上绘制框
-    for box in boxes:
-        poly = np.array(box).astype(np.int32).reshape((-1, 1, 2))  # 转换为多边形格式
-        #print ("poly in draw:", poly)
-        cv2.polylines(image, [poly], isClosed=True, color=(0, 0, 255), thickness=1)
-
-    return image
-"""
-
-def overlay_boxes_on_image(image, boxes, alpha=0.5):
-    if len(image.shape) == 2 or image.shape[2] == 1:
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-
-    for box in boxes:
-        poly = np.array(box).astype(np.int32).reshape((-1, 1, 2))
-        
-        # 创建一层透明图层
-        overlay = image.copy()
-
-        # 先在 overlay 上画粗线
-        cv2.polylines(overlay, [poly], isClosed=True, color=(0, 0, 255), thickness=2)
-
-        # 将 overlay 叠加回原图，实现半透明效果
-        image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
-
-    return image
-
-
-def overlay_mask_and_boxes(input_image, mask, boxes, alpha=0.5):
-    """
-    将 mask 和预测框叠加到输入图像上。
-
-    参数:
-    - input_image: 原始图像。
-    - mask: 生成的文本区域 mask，值为 0 或 255。
-    - boxes: 检测的框，格式为 [num_boxes, 4, 2] 的多边形顶点坐标。
-    - alpha: 透明度，默认为 0.5。
-
-    返回:
-    - overlay_image: 包含 mask 和框的叠加图像。
-    """
-    # 将 mask 转为彩色并与原图叠加
-    mask_colored = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-    overlay_image = cv2.addWeighted(input_image, 1 - alpha, mask_colored, alpha, 0)
-
-    # 在叠加图上绘制框
-    overlay_image_with_boxes = overlay_boxes_on_image(overlay_image, boxes)
-
-    return overlay_image_with_boxes
 
 def load_model(model_path, cuda=False):
     net = CRAFT()
@@ -529,89 +391,6 @@ def predict_main_map_box(image, model_path="model/main_map-bs8_8gpu-v1/finetuned
 
 # ----------------- API -----------------
 
-def polygon_to_bbox(box):
-    x, y, w, h = cv2.boundingRect(np.array(box).astype(np.int32))
-    return [x, y, x + w, y + h]
-
-def is_mostly_covered(inner_box, outer_box, cover_threshold=0.9):
-    """
-    判断 inner_box 是否有一定比例（如90%）被 outer_box 覆盖
-
-    参数：
-    - inner_box: 被测试是否被覆盖的多边形
-    - outer_box: 另一个用于覆盖检测的多边形
-    - cover_threshold: 被覆盖面积比例的阈值，默认0.9
-
-    返回：
-    - True：inner_box 超过阈值被 outer_box 覆盖
-    - False：否则不认为被包含
-    """
-    inner = np.array(inner_box, dtype=np.float32)
-    outer = np.array(outer_box, dtype=np.float32)
-
-    # 计算相交区域
-    retval, intersect_poly = cv2.intersectConvexConvex(inner, outer)
-    if retval is None or retval <= 0:
-        return False  # 没有交集
-
-    # inner_box 的面积
-    area_inner = cv2.contourArea(inner)
-    if area_inner == 0:
-        return False
-
-    # 交集面积占比
-    if retval / area_inner >= cover_threshold:
-        return True
-    else:
-        return False
-    
-def merge_boxes(boxes1, boxes2, iou_threshold=0.7, cover_threshold=0.9):
-    """
-    合并两个模型的检测框：
-    1. 删除完全包含的框（只保留大的）
-    2. NMS 去重，主模型框优先（通过分数控制）
-
-    返回最终框列表
-    """
-    all_boxes = list(boxes1) + list(boxes2)
-    num_boxes = len(all_boxes)
-
-    # 构造模型来源对应的得分：主模型分数高，Zero-Shot 分数低
-    scores = [1.0] * len(boxes1) + [0.5] * len(boxes2)
-
-    # Step 1: 过滤完全包含关系的框
-    to_remove = set()
-    for i in range(num_boxes):
-        if i in to_remove:
-            continue
-        for j in range(num_boxes):
-            if i == j or j in to_remove:
-                continue
-            box_i = all_boxes[i]
-            box_j = all_boxes[j]
-
-            if is_mostly_covered(box_i, box_j, cover_threshold=cover_threshold):
-                to_remove.add(i)
-            elif is_mostly_covered(box_j, box_i, cover_threshold=cover_threshold):
-                to_remove.add(j)
-
-    filtered_boxes = [box for idx, box in enumerate(all_boxes) if idx not in to_remove]
-    filtered_scores = [score for idx, score in enumerate(scores) if idx not in to_remove]
-
-    if not filtered_boxes:
-        return []
-
-    # Step 2: 执行 NMS（主模型得分高 → 优先保留）
-    rect_boxes = [polygon_to_bbox(box) for box in filtered_boxes]
-    boxes_tensor = torch.tensor(rect_boxes, dtype=torch.float32)
-    scores_tensor = torch.tensor(filtered_scores, dtype=torch.float32)
-
-    keep_indices = nms(boxes_tensor, scores_tensor, iou_threshold)
-    final_boxes = [filtered_boxes[i] for i in keep_indices]
-
-    return final_boxes
-
-
 def infer_single_image(
     image,
     net,
@@ -669,10 +448,21 @@ def infer_single_image(
 
     return bboxes, score_text, img_resized, target_ratio
 
-
+def safe_imwrite(filename, image):
+    ext = os.path.splitext(filename)[1]
+    success, buffer = cv2.imencode(ext, image)
+    if success:
+        buffer.tofile(filename)  # 正确处理中文路径
+        return True
+    else:
+        print(f"[ERROR] Failed to encode image: {filename}")
+        return False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
+    parser.add_argument('--zeroshot_model', default=None, type=str, help='path to the zeroshot model')
+    parser.add_argument('--merge_iou_threshold', default=0.7, type=float, help='merge iou threshold for nms')
+    parser.add_argument('--merge_cover_threshold', default=0.9, type=float, help='merge cover threshold for nms')
     parser.add_argument('--trained_model', default='final_net_param.pth', type=str, help='pretrained model')
     parser.add_argument('--text_threshold', default=0.3, type=float, help='text confidence threshold')
     parser.add_argument('--low_text', default=0.3, type=float, help='text low-bound score')
@@ -695,56 +485,40 @@ if __name__ == '__main__':
     
     """ For test images in a folder """
     image_list, _, _ = file_utils.get_files(args.test_folder)
-    print (image_list)
+
     #测试结果保存路径
     result_folder = args.result_folder
-    if not os.path.isdir(result_folder):
-        os.mkdir(result_folder)
+    os.makedirs(result_folder, exist_ok=True)
 
-    print (args.only_pred_file)
     # load net
-    net = CRAFT()     # initialize
-    print('Loading weights from checkpoint (' + args.trained_model + ')')
-    
-    net = load_model(args.trained_model, net, cuda=args.cuda)
-    net.eval()
+    net, zeroshot_net = load_models(
+        trained_model_path=args.trained_model,
+        zeroshot_model_path=args.zeroshot_model if hasattr(args, 'zeroshot_model') else None,
+        use_cuda=args.cuda
+    )
 
     t = time.time()
-    #print("net.eval")
-    #print(image_list)
     # load data
     for image_path in tqdm(image_list):
         #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
         image = imgproc.loadImage(image_path)
 
-        #bboxes, polys, score_text = test_net(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.poly, refine_net)
-        #if args.use_target_size:
-        #    bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.target_size)
-        #else:
-        #    bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, args.text_threshold, args.link_threshold, args.low_text, args.cuda, args.canvas_size, args.mag_ratio)
+        bboxes, score_text, img_resized, target_ratio = infer_single_image(image=image,
+                                                                                net=net,
+                                                                                zeroshot_net=zeroshot_net,
+                                                                                use_target_size=args.use_target_size,
+                                                                                target_size=args.target_size,
+                                                                                canvas_size=args.canvas_size,
+                                                                                mag_ratio=args.mag_ratio,
+                                                                                text_threshold=args.text_threshold,
+                                                                                link_threshold=args.link_threshold,
+                                                                                low_text=args.low_text,
+                                                                                use_cuda=args.cuda,
+                                                                                output_char_box=not args.output_word_box,
+                                                                                merge_iou_threshold=args.merge_iou_threshold,
+                                                                                merge_cover_threshold=args.merge_cover_threshold,
+                                                                                scale=args.scale)
         
-        #if args.scale != 1:
-        #    image_shape = image.shape
-            #print ("image shape:",image_shape)
-            #print ("origin bboxes:",bboxes)
-        #    bboxes = [expand_box(coords, scale=args.scale, image_shape=image_shape) for coords in bboxes]
-            #print ("expanded bboxes:",bboxes)
-
-        bboxes, ret_score_text, score_text, target_ratio, img_resized = predict_image_with_boxes(
-            image_input=image,
-            model=net,
-            model_path=args.trained_model,
-            text_threshold=args.text_threshold,
-            low_text=args.low_text,
-            link_threshold=args.link_threshold,
-            canvas_size=args.canvas_size,
-            mag_ratio=args.mag_ratio,
-            target_size=args.target_size,
-            use_target_size=args.use_target_size,
-            scale=args.scale,
-            use_cuda=args.cuda,
-            output_char_box=output_char_box
-        )
         if not args.only_pred_file:
             # save score text
             filename, file_ext = os.path.splitext(os.path.basename(image_path))
@@ -754,20 +528,12 @@ if __name__ == '__main__':
         
             cv2.imwrite(real_mask_file, real_mask)
 
-            #overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
-            #overlay_file = result_folder + "/overlay_" + filename + '_mask.jpg'
-            #cv2.imwrite(overlay_file, overlay_image)
-
-            #heatmap_overlay_image = overlay_mask_on_image(image, real_mask, alpha=0.5)
-            #heatmap_overlay_file = result_folder + "/" + filename + '_mask_overlay.jpg'
-            #cv2.imwrite(heatmap_overlay_file, heatmap_overlay_image)
-
             box_image = overlay_boxes_on_image(image, bboxes)
             box_image_file = result_folder + "/" + filename + '_box_overlay.jpg'
             cv2.imwrite(box_image_file, box_image)
 
-            mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
-            cv2.imwrite(mask_file, ret_score_text)
+            #mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
+            #cv2.imwrite(mask_file, ret_score_text)
 
             mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
             mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
