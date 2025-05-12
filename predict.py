@@ -298,8 +298,8 @@ def expand_box(coords, scale=1.1, image_shape=None):
 # ----------------- API -----------------
 
 def predict_image_with_boxes(image_input,
-                             model=None,
-                             model_path='final_net_param.pth',
+                             trained_model_path='final_net_param.pth',
+                             zeroshot_model_path=None,
                              text_threshold=0.3,
                              low_text=0.3,
                              link_threshold=0.4,
@@ -310,6 +310,8 @@ def predict_image_with_boxes(image_input,
                              scale=1.0,
                              use_cuda=False,
                              output_char_box=True,
+                             merge_iou_threshold=0.7,
+                             merge_cover_threshold=0.9,
                              debug=False):
     """
     单张图片文本检测接口，返回检测框。
@@ -322,16 +324,12 @@ def predict_image_with_boxes(image_input,
     返回:
     - boxes: 检测框列表，每个框是形如 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] 的点集
     """
-    if model is None:
-        # 1. 加载模型
-        device = 'cuda' if use_cuda and torch.cuda.is_available() else 'cpu'
-        net = CRAFT()
-        print('Loading weights from checkpoint (' + model_path + ')')
-        
-        net = load_model(model_path, net, cuda=use_cuda)
-        net.eval()
-    else:
-        net = model
+    
+    net, zeroshot_net = load_models(
+        trained_model_path=trained_model_path,
+        zeroshot_model_path=zeroshot_model_path if hasattr(args, 'zeroshot_model') else None,
+        use_cuda=args.cuda
+    )
 
     # 2. 读取图像
     if isinstance(image_input, str):
@@ -342,24 +340,31 @@ def predict_image_with_boxes(image_input,
         raise ValueError("image_input 应该是文件路径字符串或OpenCV图像")
 
     # 3. 推理
-    if use_target_size:
-        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v3(net, image, text_threshold, link_threshold, low_text, use_cuda, target_size, output_char_box=output_char_box, debug=debug)
-    else:
-        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, text_threshold, link_threshold, low_text, use_cuda, canvas_size, mag_ratio, output_char_box=output_char_box, debug=debug)
+    bboxes, score_text, img_resized, target_ratio = infer_single_image(image=image,
+                                                                        net=net,
+                                                                        zeroshot_net=zeroshot_net,
+                                                                        use_target_size=use_target_size,
+                                                                        target_size=target_size,
+                                                                        canvas_size=canvas_size,
+                                                                        mag_ratio=mag_ratio,
+                                                                        text_threshold=text_threshold,
+                                                                        link_threshold=link_threshold,
+                                                                        low_text=low_text,
+                                                                        use_cuda=use_cuda,
+                                                                        output_char_box=output_char_box,
+                                                                        merge_iou_threshold=merge_iou_threshold,
+                                                                        merge_cover_threshold=merge_cover_threshold,
+                                                                        scale=scale)
+    
 
-    # 4. 扩展 box（如果需要）
-    if scale != 1:
-        image_shape = image.shape
-        bboxes = [expand_box(coords, scale=scale, image_shape=image_shape) for coords in bboxes]
-
-    return bboxes, ret_score_text, score_text, target_ratio, img_resized
+    return bboxes, score_text, target_ratio, img_resized
 
 
-def predict_legend_box(image, model_path="model/td-bs8_8gpu-v1/finetuned_epoch_9_iter700.pth", scale=1, use_cuda=True):
-    bboxes, ret_score_text, score_text, target_ratio, img_resized = predict_image_with_boxes(
+def predict_legend_box(image, trained_model_path="model/td-bs8_8gpu-v1/finetuned_epoch_9_iter700.pth", scale=1, use_cuda=True):
+    bboxes, score_text, target_ratio, img_resized = predict_image_with_boxes(
             image_input=image,
-            model=None,
-            model_path=model_path,
+            trained_model_path=trained_model_path,
+            zeroshot_model_path=None,
             text_threshold=0.3,
             low_text=0.3,
             link_threshold=0.4,
@@ -368,15 +373,18 @@ def predict_legend_box(image, model_path="model/td-bs8_8gpu-v1/finetuned_epoch_9
             target_size=768,
             use_target_size=False,
             scale=scale,
-            use_cuda=use_cuda
+            use_cuda=use_cuda,
+            output_char_box=True,
+            merge_iou_threshold=0.7,
+            merge_cover_threshold=0.9
         )
     return bboxes
 
-def predict_main_map_box(image, model_path="model/main_map-bs8_8gpu-v1/finetuned_epoch_7_iter460.pth", scale=1, use_cuda=True):
+def predict_main_map_box(image, trained_model_path="model/after_zero-0430_main_map-bs16_8gpu-v2/finetuned_epoch_9_iter80.pth", scale=1, use_cuda=True):
     bboxes, ret_score_text, score_text, target_ratio, img_resized = predict_image_with_boxes(
             image_input=image,
-            model=None,
-            model_path=model_path,
+            trained_model_path=trained_model_path,
+            zeroshot_model_path='model/craft_mlt_25k.pth',
             text_threshold=0.3,
             low_text=0.3,
             link_threshold=0.4,
@@ -385,7 +393,10 @@ def predict_main_map_box(image, model_path="model/main_map-bs8_8gpu-v1/finetuned
             target_size=768,
             use_target_size=True,
             scale=scale,
-            use_cuda=use_cuda
+            use_cuda=use_cuda,
+            output_char_box=False,
+            merge_iou_threshold=0.7,
+            merge_cover_threshold=0.9
         )
     return bboxes
 
