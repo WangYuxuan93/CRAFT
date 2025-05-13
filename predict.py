@@ -327,8 +327,8 @@ def predict_image_with_boxes(image_input,
     
     net, zeroshot_net = load_models(
         trained_model_path=trained_model_path,
-        zeroshot_model_path=zeroshot_model_path if hasattr(args, 'zeroshot_model') else None,
-        use_cuda=args.cuda
+        zeroshot_model_path=zeroshot_model_path,
+        use_cuda=use_cuda
     )
 
     # 2. 读取图像
@@ -381,7 +381,7 @@ def predict_legend_box(image, trained_model_path="model/td-bs8_8gpu-v1/finetuned
     return bboxes
 
 def predict_main_map_box(image, trained_model_path="model/after_zero-0430_main_map-bs16_8gpu-v2/finetuned_epoch_9_iter80.pth", scale=1, use_cuda=True):
-    bboxes, ret_score_text, score_text, target_ratio, img_resized = predict_image_with_boxes(
+    bboxes, score_text, target_ratio, img_resized = predict_image_with_boxes(
             image_input=image,
             trained_model_path=trained_model_path,
             zeroshot_model_path='model/craft_mlt_25k.pth',
@@ -469,6 +469,62 @@ def safe_imwrite(filename, image):
         print(f"[ERROR] Failed to encode image: {filename}")
         return False
 
+def run_craft_detection(args):
+    output_char_box = not args.output_word_box
+
+    # Collect image list
+    image_list, _, _ = file_utils.get_files(args.test_folder)
+
+    # Prepare result folder
+    os.makedirs(args.result_folder, exist_ok=True)
+
+    # Load models
+    net, zeroshot_net = load_models(
+        trained_model_path=args.trained_model,
+        zeroshot_model_path=args.zeroshot_model if hasattr(args, 'zeroshot_model') else None,
+        use_cuda=args.cuda
+    )
+
+    t = time.time()
+
+    for image_path in tqdm(image_list):
+        image = imgproc.loadImage(image_path)
+
+        bboxes, score_text, img_resized, target_ratio = infer_single_image(
+            image=image,
+            net=net,
+            zeroshot_net=zeroshot_net,
+            use_target_size=args.use_target_size,
+            target_size=args.target_size,
+            canvas_size=args.canvas_size,
+            mag_ratio=args.mag_ratio,
+            text_threshold=args.text_threshold,
+            link_threshold=args.link_threshold,
+            low_text=args.low_text,
+            use_cuda=args.cuda,
+            output_char_box=output_char_box,
+            merge_iou_threshold=args.merge_iou_threshold,
+            merge_cover_threshold=args.merge_cover_threshold,
+            scale=args.scale
+        )
+
+        # Save result images
+        if not args.only_pred_file:
+            filename, _ = os.path.splitext(os.path.basename(image_path))
+            real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
+            cv2.imwrite(os.path.join(args.result_folder, f"{filename}_mask.png"), real_mask)
+
+            box_image = overlay_boxes_on_image(image, bboxes)
+            cv2.imwrite(os.path.join(args.result_folder, f"{filename}_box_overlay.jpg"), box_image)
+
+            mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
+            cv2.imwrite(os.path.join(args.result_folder, f"{filename}_mask_and_box_overlay.jpg"), mask_and_box_image)
+
+        # Save prediction file
+        file_utils.saveResult(image_path, image[:, :, ::-1], bboxes, dirname=args.output_folder)
+
+    print(f"Elapsed time: {time.time() - t:.2f}s")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CRAFT Text Detection')
     parser.add_argument('--zeroshot_model', default=None, type=str, help='path to the zeroshot model')
@@ -492,64 +548,4 @@ if __name__ == '__main__':
     parser.add_argument('--output_word_box', default=False, action='store_true', help='output word bbox')
     args = parser.parse_args()
 
-    output_char_box = not args.output_word_box
-    
-    """ For test images in a folder """
-    image_list, _, _ = file_utils.get_files(args.test_folder)
-
-    #测试结果保存路径
-    result_folder = args.result_folder
-    os.makedirs(result_folder, exist_ok=True)
-
-    # load net
-    net, zeroshot_net = load_models(
-        trained_model_path=args.trained_model,
-        zeroshot_model_path=args.zeroshot_model if hasattr(args, 'zeroshot_model') else None,
-        use_cuda=args.cuda
-    )
-
-    t = time.time()
-    # load data
-    for image_path in tqdm(image_list):
-        #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
-        image = imgproc.loadImage(image_path)
-
-        bboxes, score_text, img_resized, target_ratio = infer_single_image(image=image,
-                                                                                net=net,
-                                                                                zeroshot_net=zeroshot_net,
-                                                                                use_target_size=args.use_target_size,
-                                                                                target_size=args.target_size,
-                                                                                canvas_size=args.canvas_size,
-                                                                                mag_ratio=args.mag_ratio,
-                                                                                text_threshold=args.text_threshold,
-                                                                                link_threshold=args.link_threshold,
-                                                                                low_text=args.low_text,
-                                                                                use_cuda=args.cuda,
-                                                                                output_char_box=not args.output_word_box,
-                                                                                merge_iou_threshold=args.merge_iou_threshold,
-                                                                                merge_cover_threshold=args.merge_cover_threshold,
-                                                                                scale=args.scale)
-        
-        if not args.only_pred_file:
-            # save score text
-            filename, file_ext = os.path.splitext(os.path.basename(image_path))
-
-            real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
-            real_mask_file = result_folder + "/" + filename + '_mask.png'
-        
-            cv2.imwrite(real_mask_file, real_mask)
-
-            box_image = overlay_boxes_on_image(image, bboxes)
-            box_image_file = result_folder + "/" + filename + '_box_overlay.jpg'
-            cv2.imwrite(box_image_file, box_image)
-
-            #mask_file = result_folder + "/res_" + filename + '_heatmap.jpg'
-            #cv2.imwrite(mask_file, ret_score_text)
-
-            mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
-            mask_and_box_image_file = result_folder + "/" + filename + '_mask_and_box_overlay.jpg'
-            cv2.imwrite(mask_and_box_image_file, mask_and_box_image)
-
-        file_utils.saveResult(image_path, image[:,:,::-1], bboxes, dirname=args.output_folder)
-
-    print("elapsed time : {}s".format(time.time() - t))
+    run_craft_detection(args)

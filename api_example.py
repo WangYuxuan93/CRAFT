@@ -34,10 +34,10 @@ def process_folder(image_folder, predictor_func, output_folder, label):
 
 def main(args):
     if args.type == 'legend':
-        predictor = lambda img: predict_legend_box(img, model_path=args.model_path, scale=args.scale, use_cuda=args.cuda)
+        predictor = lambda img: predict_legend_box(img, trained_model_path=args.model_path, scale=args.scale, use_cuda=args.cuda)
         label = 'legend'
     elif args.type == 'mainmap':
-        predictor = lambda img: predict_main_map_box(img, model_path=args.model_path, scale=args.scale, use_cuda=args.cuda)
+        predictor = lambda img: predict_main_map_box(img, trained_model_path=args.model_path, scale=args.scale, use_cuda=args.cuda)
         label = 'mainmap'
     else:
         raise ValueError("type must be 'legend' or 'mainmap'")
