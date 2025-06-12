@@ -298,8 +298,8 @@ def expand_box(coords, scale=1.1, image_shape=None):
 # ----------------- API -----------------
 
 def predict_image_with_boxes(image_input,
-                             trained_model_path='final_net_param.pth',
-                             zeroshot_model_path=None,
+                             craft_net=None,
+                             zeroshot_craft_net=None,
                              text_threshold=0.3,
                              low_text=0.3,
                              link_threshold=0.4,
@@ -324,12 +324,9 @@ def predict_image_with_boxes(image_input,
     返回:
     - boxes: 检测框列表，每个框是形如 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] 的点集
     """
-    
-    net, zeroshot_net = load_models(
-        trained_model_path=trained_model_path,
-        zeroshot_model_path=zeroshot_model_path,
-        use_cuda=use_cuda
-    )
+
+    net = craft_net
+    zeroshot_net = zeroshot_craft_net
 
     # 2. 读取图像
     if isinstance(image_input, str):
@@ -355,16 +352,19 @@ def predict_image_with_boxes(image_input,
                                                                         merge_iou_threshold=merge_iou_threshold,
                                                                         merge_cover_threshold=merge_cover_threshold,
                                                                         scale=scale)
-    
+    bboxes = [
+        [ [int(round(x)), int(round(y))] for (x, y) in box ]
+        for box in bboxes
+    ]
 
     return bboxes, score_text, target_ratio, img_resized
 
 
-def predict_legend_box(image, trained_model_path="model/td-bs8_8gpu-v1/finetuned_epoch_9_iter700.pth", scale=1, use_cuda=True):
+def predict_legend_box(image, craft_net=None, scale=1, use_cuda=True):
     bboxes, score_text, target_ratio, img_resized = predict_image_with_boxes(
             image_input=image,
-            trained_model_path=trained_model_path,
-            zeroshot_model_path=None,
+            craft_net=craft_net,
+            zeroshot_craft_net=None,
             text_threshold=0.3,
             low_text=0.3,
             link_threshold=0.4,
@@ -380,11 +380,21 @@ def predict_legend_box(image, trained_model_path="model/td-bs8_8gpu-v1/finetuned
         )
     return bboxes
 
-def predict_main_map_box(image, trained_model_path="model/after_zero-0430_main_map-bs16_8gpu-v2/finetuned_epoch_9_iter80.pth", scale=1, use_cuda=True):
+def load_craft_model(model_path="model/after_zero-0430_main_map-bs16_8gpu-v2/finetuned_epoch_9_iter80.pth", use_cuda=True):
+    craft_net = load_model(
+        model_path,
+        cuda=use_cuda)
+    return craft_net
+
+def predict_main_map_box(image, craft_net=None, scale=1, use_cuda=True):
+    try:
+        assert craft_net is not None
+    except:
+        print ("Failed loading CRAFT model.")
     bboxes, score_text, target_ratio, img_resized = predict_image_with_boxes(
             image_input=image,
-            trained_model_path=trained_model_path,
-            zeroshot_model_path='model/craft_mlt_25k.pth',
+            craft_net=craft_net,
+            zeroshot_craft_net=None,
             text_threshold=0.3,
             low_text=0.3,
             link_threshold=0.4,

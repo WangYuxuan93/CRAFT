@@ -1,7 +1,7 @@
 import os
 import argparse
 import cv2
-from predict import predict_legend_box, predict_main_map_box, overlay_boxes_on_image
+from predict import predict_legend_box, predict_main_map_box, overlay_boxes_on_image, load_craft_model
 from utils import imgproc
 
 
@@ -21,9 +21,11 @@ def process_folder(image_folder, predictor_func, output_folder, label):
     print(f"\n[{label}] Found {len(image_list)} images in {image_folder}")
 
     for image_path in image_list:
-        image = imgproc.loadImage(image_path)
+        #image = imgproc.loadImage(image_path)
+        image = load_image_as_opencv_matrix(image_path)
         boxes = predictor_func(image)
         print(f"{label} - {os.path.basename(image_path)}: {len(boxes)} boxes")
+        print ("boxes:", boxes)
 
         if output_folder:
             os.makedirs(output_folder, exist_ok=True)
@@ -31,13 +33,33 @@ def process_folder(image_folder, predictor_func, output_folder, label):
             out_path = os.path.join(output_folder, f"{filename}_{label}.jpg")
             draw_and_save(image, boxes, out_path)
 
+import numpy as np
+from io import BytesIO
+
+def load_image_as_opencv_matrix(local_filepath):
+    # 1. 先把文件内容当二进制读进内存
+    with open(local_filepath, 'rb') as f:
+        file_bytes = f.read()
+    # 2. 包装成 BytesIO
+    image_cache = BytesIO(file_bytes)
+    # 3. 转成 numpy 一维字节数组
+    image_data = np.asarray(bytearray(image_cache.read()), dtype=np.uint8)
+    # 4. 用 imdecode 解码
+    image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+    #cv2.imshow('LoadedImage', image)
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
+    return image
+
 
 def main(args):
+    print ("cuda:", args.cuda)
+    craft_model = load_craft_model(model_path=args.model_path, use_cuda=args.cuda)
     if args.type == 'legend':
-        predictor = lambda img: predict_legend_box(img, trained_model_path=args.model_path, scale=args.scale, use_cuda=args.cuda)
+        predictor = lambda img: predict_legend_box(img, craft_net=craft_model, scale=args.scale, use_cuda=args.cuda)
         label = 'legend'
     elif args.type == 'mainmap':
-        predictor = lambda img: predict_main_map_box(img, trained_model_path=args.model_path, scale=args.scale, use_cuda=args.cuda)
+        predictor = lambda img: predict_main_map_box(img, craft_net=craft_model, scale=args.scale, use_cuda=args.cuda)
         label = 'mainmap'
     else:
         raise ValueError("type must be 'legend' or 'mainmap'")

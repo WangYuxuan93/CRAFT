@@ -84,6 +84,20 @@ def get_image_paths(root_dir):
     
     return dict(grouped_paths)
 
+def get_image_paths_v2(root_dir):
+    grouped_paths = defaultdict(list)
+
+    # 遍历 root_dir 下的所有文件
+    for file_name in os.listdir(root_dir):
+        if file_name.lower().endswith((".jpg", ".jpeg", ".png", ".tif")):
+            file_path = os.path.join(root_dir, file_name)
+            if os.path.isfile(file_path):
+                # 使用前缀 croping_1 里的数字进行分组（可按需更改）
+                prefix = file_name.split('_')[0]  # 例如 croping
+                grouped_paths[prefix].append(file_path)
+
+    return dict(grouped_paths)
+
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
 
@@ -144,8 +158,11 @@ if __name__ == '__main__':
     output_char_box = not args.output_word_box
 
     """ For test images in a folder """
-    image_dict = get_image_paths(args.test_folder)
+    #image_dict = get_image_paths(args.test_folder)
 
+    image_dict = get_image_paths_v2(args.test_folder)
+    print (image_dict)
+    #exit()
     # load net
     net, zeroshot_net = load_models(
         trained_model_path=args.trained_model,
