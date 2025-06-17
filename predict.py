@@ -394,7 +394,7 @@ class craft_predictor(object):
                 target_size=768,
                 use_target_size=True,
                 scale=scale,
-                use_cuda=use_cuda,
+                use_cuda=self.use_cuda,
                 output_char_box=False,
                 merge_iou_threshold=0.7,
                 merge_cover_threshold=0.9
