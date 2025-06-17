@@ -363,35 +363,43 @@ def predict_legend_box(image, craft_net=None, scale=1, use_cuda=True):
         )
     return bboxes
 
-def load_craft_model(model_path="model/after_zero-0430_main_map-bs16_8gpu-v2/finetuned_epoch_9_iter80.pth", use_cuda=True):
-    craft_net = load_model(
-        model_path,
-        cuda=use_cuda)
-    return craft_net
+class craft_predictor(object):
+    def __init__(self, model_path="model/after_zero-0430_main_map-bs16_8gpu-v2/finetuned_epoch_9_iter80.pth", use_cuda=True):
+        self.model_path = model_path
+        self.use_cuda = use_cuda
 
-def predict_main_map_box(image, craft_net=None, scale=1, use_cuda=True):
-    try:
-        assert craft_net is not None
-    except:
-        print ("Failed loading CRAFT model.")
-    bboxes, score_text, target_ratio, img_resized = predict_image_with_boxes(
-            image_input=image,
-            craft_net=craft_net,
-            zeroshot_craft_net=None,
-            text_threshold=0.3,
-            low_text=0.3,
-            link_threshold=0.4,
-            canvas_size=4096,
-            mag_ratio=1,
-            target_size=768,
-            use_target_size=True,
-            scale=scale,
-            use_cuda=use_cuda,
-            output_char_box=False,
-            merge_iou_threshold=0.7,
-            merge_cover_threshold=0.9
-        )
-    return bboxes
+    def load_craft_model(self):
+        try:
+            self.craft_net = load_model(
+                self.model_path,
+                cuda=self.use_cuda)
+            return True
+        except:
+            return False
+
+    def predict_main_map_box(self, image, scale=1, use_cuda=True):
+        try:
+            assert self.craft_net is not None
+        except:
+            print ("Failed loading CRAFT model.")
+        bboxes, score_text, target_ratio, img_resized = predict_image_with_boxes(
+                image_input=image,
+                craft_net=self.craft_net,
+                zeroshot_craft_net=None,
+                text_threshold=0.3,
+                low_text=0.3,
+                link_threshold=0.4,
+                canvas_size=4096,
+                mag_ratio=1,
+                target_size=768,
+                use_target_size=True,
+                scale=scale,
+                use_cuda=use_cuda,
+                output_char_box=False,
+                merge_iou_threshold=0.7,
+                merge_cover_threshold=0.9
+            )
+        return bboxes
 
 # ----------------- API -----------------
 
