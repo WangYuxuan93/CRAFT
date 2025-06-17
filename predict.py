@@ -8,6 +8,7 @@ import os
 import time
 import argparse
 
+from collections import OrderedDict
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
@@ -20,11 +21,18 @@ from tqdm import tqdm
 from utils import file_utils, craft_utils, imgproc
 
 from net.craft import CRAFT
-from eval import copyStateDict
-from evaluation2 import read_txt_file
-from torchvision.ops import nms
-from visualize import generate_text_mask, generate_text_mask, overlay_boxes_on_image, overlay_mask_and_boxes
 from merge import merge_boxes
+
+def copyStateDict(state_dict):
+    if list(state_dict.keys())[0].startswith("module"):
+        start_idx = 1
+    else:
+        start_idx = 0
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        name = ".".join(k.split(".")[start_idx:])
+        new_state_dict[name] = v
+    return new_state_dict
 
 def str2bool(v):
     return v.lower() in ("yes", "y", "true", "t", "1")
@@ -246,31 +254,6 @@ def load_text_detect(images_path, labels_path):
     label_names.sort()
     return image_names, label_names
 
-def inference(net, test_folder, text_threshold=0.5, low_text=0.4, link_threshold=0.4, cuda=False, canvas_size=1280, mag_ratio=1.5):
-    images_path = os.path.join(test_folder, "valid_images")
-    labels_path = os.path.join(test_folder, "valid_labels")
-    image_names, label_names = load_text_detect(images_path, labels_path)
-
-    net.eval()
-    pred_bbox_list = []
-    gold_bbox_list = []
-    for gold_path, image_path in tqdm(zip(label_names, image_names), total=len(image_names), desc="Processing", ncols=80):
-        #print("Test image {:d}/{:d}: {:s}".format(k+1, len(image_list), image_path), end='\r')
-        image = imgproc.loadImage(os.path.join(images_path, image_path))
-
-        bboxes, ret_score_text, score_text, target_ratio, img_resized = test_net_v2(net, image, text_threshold, link_threshold, low_text, cuda, canvas_size, mag_ratio)
-        #print ("bboxes:", bboxes)
-        pred_bbox = []
-        for i, box in enumerate(bboxes):
-            poly = np.array(box).astype(np.int32)#.reshape((-1))
-            pred_bbox.append(poly)
-        #print ("pred bbox:", pred_bbox)
-        pred_bbox_list.append(pred_bbox)
-        gold_bbox = read_txt_file(os.path.join(labels_path, gold_path), is_gold=True)
-        #print ("gold_bbox:", gold_bbox)
-        gold_bbox_list.append(gold_bbox)
-    
-    return gold_bbox_list, pred_bbox_list
 
 def expand_box(coords, scale=1.1, image_shape=None):
     """
@@ -478,84 +461,3 @@ def safe_imwrite(filename, image):
     else:
         print(f"[ERROR] Failed to encode image: {filename}")
         return False
-
-def run_craft_detection(args):
-    output_char_box = not args.output_word_box
-
-    # Collect image list
-    image_list, _, _ = file_utils.get_files(args.test_folder)
-
-    # Prepare result folder
-    os.makedirs(args.result_folder, exist_ok=True)
-
-    # Load models
-    net, zeroshot_net = load_models(
-        trained_model_path=args.trained_model,
-        zeroshot_model_path=args.zeroshot_model if hasattr(args, 'zeroshot_model') else None,
-        use_cuda=args.cuda
-    )
-
-    t = time.time()
-
-    for image_path in tqdm(image_list):
-        image = imgproc.loadImage(image_path)
-
-        bboxes, score_text, img_resized, target_ratio = infer_single_image(
-            image=image,
-            net=net,
-            zeroshot_net=zeroshot_net,
-            use_target_size=args.use_target_size,
-            target_size=args.target_size,
-            canvas_size=args.canvas_size,
-            mag_ratio=args.mag_ratio,
-            text_threshold=args.text_threshold,
-            link_threshold=args.link_threshold,
-            low_text=args.low_text,
-            use_cuda=args.cuda,
-            output_char_box=output_char_box,
-            merge_iou_threshold=args.merge_iou_threshold,
-            merge_cover_threshold=args.merge_cover_threshold,
-            scale=args.scale
-        )
-
-        # Save result images
-        if not args.only_pred_file:
-            filename, _ = os.path.splitext(os.path.basename(image_path))
-            real_mask = generate_text_mask(score_text, args.low_text, image, img_resized, target_ratio)
-            cv2.imwrite(os.path.join(args.result_folder, f"{filename}_mask.png"), real_mask)
-
-            box_image = overlay_boxes_on_image(image, bboxes)
-            cv2.imwrite(os.path.join(args.result_folder, f"{filename}_box_overlay.jpg"), box_image)
-
-            mask_and_box_image = overlay_mask_and_boxes(image, real_mask, bboxes, alpha=0.5)
-            cv2.imwrite(os.path.join(args.result_folder, f"{filename}_mask_and_box_overlay.jpg"), mask_and_box_image)
-
-        # Save prediction file
-        file_utils.saveResult(image_path, image[:, :, ::-1], bboxes, dirname=args.output_folder)
-
-    print(f"Elapsed time: {time.time() - t:.2f}s")
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='CRAFT Text Detection')
-    parser.add_argument('--zeroshot_model', default=None, type=str, help='path to the zeroshot model')
-    parser.add_argument('--merge_iou_threshold', default=0.7, type=float, help='merge iou threshold for nms')
-    parser.add_argument('--merge_cover_threshold', default=0.9, type=float, help='merge cover threshold for nms')
-    parser.add_argument('--trained_model', default='final_net_param.pth', type=str, help='pretrained model')
-    parser.add_argument('--text_threshold', default=0.3, type=float, help='text confidence threshold')
-    parser.add_argument('--low_text', default=0.3, type=float, help='text low-bound score')
-    parser.add_argument('--link_threshold', default=0.4, type=float, help='link confidence threshold')
-    parser.add_argument('--cuda', default=False, type=str2bool, help='Use cuda to train model')
-    parser.add_argument('--canvas_size', default=4096, type=int, help='image size for inference')
-    parser.add_argument('--mag_ratio', default=1.5, type=float, help='image magnification ratio')
-    parser.add_argument('--show_time', default=False, action='store_true', help='show processing time')
-    parser.add_argument('--test_folder', default='/home/brooklyn/ICDAR/icdar2013/test_images/', type=str, help='folder path to input images')
-    parser.add_argument('--result_folder', default='./result/', type=str, help='folder path to save result images')
-    parser.add_argument('--output_folder', default='./result/pred_labels', type=str, help='folder path to save prediction file')
-    parser.add_argument('--only_pred_file', default=False, action='store_true', help='Only output prediction file to output folder')
-    parser.add_argument('--target_size', default=768, type=int, help='image size for inference')
-    parser.add_argument('--use_target_size', default=False, type=str2bool, help='resize the image to target size')
-    parser.add_argument('--scale', default=1, type=float, help='box expanding scale')
-    parser.add_argument('--output_word_box', default=False, action='store_true', help='output word bbox')
-    args = parser.parse_args()
-
-    run_craft_detection(args)

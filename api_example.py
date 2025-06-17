@@ -1,7 +1,8 @@
 import os
 import argparse
 import cv2
-from predict import predict_legend_box, predict_main_map_box, overlay_boxes_on_image, load_craft_model
+from visualize import overlay_boxes_on_image
+from predict import predict_legend_box, load_craft_model, predict_main_map_box
 from utils import imgproc
 
 
