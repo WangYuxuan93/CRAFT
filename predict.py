@@ -377,7 +377,7 @@ class craft_predictor(object):
         except:
             return False
 
-    def predict_main_map_box(self, image, scale=1, use_cuda=True):
+    def predict_main_map_box(self, image, scale=1):
         try:
             assert self.craft_net is not None
         except:
