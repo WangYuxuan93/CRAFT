@@ -2,9 +2,9 @@ import os
 import argparse
 import cv2
 from visualize import overlay_boxes_on_image
-from predict import predict_legend_box, load_craft_model, predict_main_map_box
+#from predict import predict_legend_box, load_craft_model, predict_main_map_box
 from utils import imgproc
-
+from predict import craft_predictor
 
 def draw_and_save(image, boxes, save_path):
     """绘制预测框并保存图像"""
@@ -55,12 +55,14 @@ def load_image_as_opencv_matrix(local_filepath):
 
 def main(args):
     print ("cuda:", args.cuda)
-    craft_model = load_craft_model(model_path=args.model_path, use_cuda=args.cuda)
-    if args.type == 'legend':
-        predictor = lambda img: predict_legend_box(img, craft_net=craft_model, scale=args.scale, use_cuda=args.cuda)
-        label = 'legend'
-    elif args.type == 'mainmap':
-        predictor = lambda img: predict_main_map_box(img, craft_net=craft_model, scale=args.scale, use_cuda=args.cuda)
+    #craft_model = load_craft_model(model_path=args.model_path, use_cuda=args.cuda)
+    ocr_predictor = craft_predictor(model_path=args.model_path, use_cuda=args.cuda)
+    ocr_predictor.load_craft_model()
+    #if args.type == 'legend':
+    #    predictor = lambda img: craft_predictor.predict_legend_box(img)
+    #    label = 'legend'
+    if args.type == 'mainmap':
+        predictor = lambda img: ocr_predictor.predict_main_map_box(img)
         label = 'mainmap'
     else:
         raise ValueError("type must be 'legend' or 'mainmap'")

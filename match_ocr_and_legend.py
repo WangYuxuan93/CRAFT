@@ -1,0 +1,358 @@
+import os
+import argparse
+import cv2
+from visualize import overlay_boxes_on_image
+from utils import imgproc
+from predict import craft_predictor
+import numpy as np
+from io import BytesIO
+
+
+def draw_and_save(image, save_path):
+    cv2.imwrite(save_path, image)
+    print(f"Saved visualization to {save_path}")
+
+def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes):
+    overlay = image.copy()
+    alpha = 0.4
+    matched_ocr_set = set()
+
+    # Draw all legend boxes (green)
+    for lgd in legend_results_ori:
+        x1, y1, x2, y2 = lgd['box']
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), -1)
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 200, 0), 2)
+
+    # Draw matched OCR boxes (red) and connect lines
+    for lgd in matched_legends:
+        lx1, ly1, lx2, ly2 = lgd['box']
+        legend_center = ((lx1 + lx2) // 2, (ly1 + ly2) // 2)
+
+        for idx in lgd['matched_indices']:
+            matched_ocr_set.add(idx)
+            quad = ocr_boxes[idx][:4]
+            xs = [pt[0] for pt in quad]
+            ys = [pt[1] for pt in quad]
+            x1, y1 = min(xs), min(ys)
+            x2, y2 = max(xs), max(ys)
+            ox, oy = (x1 + x2) // 2, (y1 + y2) // 2
+
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), -1)
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 180), 2)
+            cv2.line(image, legend_center, (ox, oy), (0, 0, 200), 2)
+
+    # Draw unmatched OCR boxes (blue)
+    for idx, occ in enumerate(ocr_boxes):
+        if idx in matched_ocr_set:
+            continue
+        quad = occ[:4]
+        xs = [pt[0] for pt in quad]
+        ys = [pt[1] for pt in quad]
+        x1, y1 = min(xs), min(ys)
+        x2, y2 = max(xs), max(ys)
+        cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+    combined = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+    return combined
+
+def load_image_as_opencv_matrix(local_filepath):
+    with open(local_filepath, 'rb') as f:
+        file_bytes = f.read()
+    image_cache = BytesIO(file_bytes)
+    image_data = np.asarray(bytearray(image_cache.read()), dtype=np.uint8)
+    image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+    return image
+
+
+def filter_legends_with_ocr(legend_results_ori, ocr_boxes):
+    matched_legends = []
+
+    # ✅ OCR boxes 按 x 坐标升序排列，确保匹配顺序合理
+    ocr_boxes_sorted = sorted(enumerate(ocr_boxes), key=lambda item: min(p[0] for p in item[1][:4]))
+
+    raw_matches = []
+
+    for lgd in legend_results_ori:
+        lx1, ly1, lx2, ly2 = lgd['box']
+        lw = lx2 - lx1
+        lh = ly2 - ly1
+        matched_indices = []
+
+        # ✅ 找右侧 legend 邻居（最近且有垂直重叠）
+        min_dx = float('inf')
+        right_neighbor_x = None
+        for other in legend_results_ori:
+            if other is lgd:
+                continue
+            ox1, oy1, ox2, oy2 = other['box']
+            if ox1 > lx2 and not (ly2 <= oy1 or ly1 >= oy2):
+                dx = ox1 - lx2
+                if dx < min_dx:
+                    min_dx = dx
+                    right_neighbor_x = ox1
+
+        # ✅ 设置匹配横向范围
+        primary_max_x = lx1 + 2.0 * lw
+        extended_max_x = right_neighbor_x if right_neighbor_x is not None else lx1 + 10.0 * lw
+        max_gap = 1.0 * lw
+        current_right_bound = None
+
+        # ✅ Step 1: 右侧主 + 扩展匹配
+        for idx, occ in ocr_boxes_sorted:
+            quad = occ[:4]
+            xs = [pt[0] for pt in quad]
+            ys = [pt[1] for pt in quad]
+            x1, y1 = min(xs), min(ys)
+            x2, y2 = max(xs), max(ys)
+            oy = (y1 + y2) * 0.5
+
+            # 主区间直接匹配
+            if lx1 + lw <= x1 <= primary_max_x and ly1 - 0.3 * lh < oy < ly2 + 0.3 * lh:
+                matched_indices.append(idx)
+                current_right_bound = x2 if current_right_bound is None else max(current_right_bound, x2)
+                continue
+
+            # 扩展区间匹配需要接近已有边界
+            if primary_max_x < x1 <= extended_max_x and ly1 - 0.3 * lh < oy < ly2 + 0.3 * lh:
+                if current_right_bound is not None and x1 - current_right_bound < max_gap:
+                    matched_indices.append(idx)
+                    current_right_bound = max(current_right_bound, x2)
+
+        # ✅ Step 2: 若右侧无匹配，再尝试下方匹配
+        if not matched_indices:
+            for idx, occ in enumerate(ocr_boxes):
+                quad = occ[:4]
+                xs = [pt[0] for pt in quad]
+                ys = [pt[1] for pt in quad]
+                x1, y1 = min(xs), min(ys)
+                x2, y2 = max(xs), max(ys)
+                ox = (x1 + x2) * 0.5
+                oy = (y1 + y2) * 0.5
+
+                is_bottom = lx1 - 0.2 * lw < ox < lx2 + 0.2 * lw and ly2 <= oy <= ly2 + 1.5 * lh
+                if is_bottom:
+                    matched_indices.append(idx)
+
+        if matched_indices:
+            raw_matches.append({
+                'box': [lx1, ly1, lx2, ly2],
+                'matched_indices': matched_indices
+            })
+
+    # ✅ 后处理：每个 OCR 只能匹配一个 legend，保留距离最近的匹配
+    ocr_to_best = {}
+    for i, entry in enumerate(raw_matches):
+        lx1, ly1, lx2, ly2 = entry['box']
+        for idx in entry['matched_indices']:
+            quad = ocr_boxes[idx][:4]
+            xs = [pt[0] for pt in quad]
+            ys = [pt[1] for pt in quad]
+            x1, y1 = min(xs), min(ys)
+            x2, y2 = max(xs), max(ys)
+
+            # ✅ 使用 OCR box 左边中点 和 legend box 中心点 的欧氏距离
+            ocr_left_mid = ((x1 + x1) / 2, (y1 + y2) / 2)
+            legend_center = ((lx1 + lx2) / 2, (ly1 + ly2) / 2)
+            dist = ((ocr_left_mid[0] - legend_center[0]) ** 2 + (ocr_left_mid[1] - legend_center[1]) ** 2) ** 0.5
+
+            if idx not in ocr_to_best or dist < ocr_to_best[idx][1]:
+                ocr_to_best[idx] = (i, dist)
+
+    # ✅ 构造最终唯一匹配的结果
+    legend_idx_to_ocr_indices = {}
+    for idx, (legend_idx, _) in ocr_to_best.items():
+        legend_idx_to_ocr_indices.setdefault(legend_idx, []).append(idx)
+
+    for i, entry in enumerate(raw_matches):
+        indices = legend_idx_to_ocr_indices.get(i, [])
+        if indices:
+            matched_legends.append({
+                'box': entry['box'],
+                'matched_indices': indices
+            })
+
+    return matched_legends
+
+
+def filter_ocr_boxes_inside_legends(ocr_boxes, legend_boxes, iou_thresh=0.9):
+    def compute_iou(boxA, boxB):
+        # box: [x1, y1, x2, y2]
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+
+        interW = max(0, xB - xA)
+        interH = max(0, yB - yA)
+        interArea = interW * interH
+
+        if interArea == 0:
+            return 0.0
+
+        areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+        areaB = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+        iou = interArea / float(areaA + areaB - interArea)
+        return iou
+
+    filtered = []
+    for occ in ocr_boxes:
+        quad = occ[:4]
+        xs = [pt[0] for pt in quad]
+        ys = [pt[1] for pt in quad]
+        x1, y1 = min(xs), min(ys)
+        x2, y2 = max(xs), max(ys)
+        ocr_box = [x1, y1, x2, y2]
+
+        is_high_iou = False
+        for lgd in legend_boxes:
+            lx1, ly1, lx2, ly2 = lgd['box']
+            legend_box = [lx1, ly1, lx2, ly2]
+            iou = compute_iou(ocr_box, legend_box)
+            if iou >= iou_thresh:
+                is_high_iou = True
+                break
+
+        if not is_high_iou:
+            filtered.append(occ)
+
+    return filtered
+
+
+def adjust_ocr_boxes_by_cutting_overlapping_legends(ocr_boxes, legend_boxes, min_width=5):
+    def box_from_rect(rect, original_occ):
+        x1, y1, x2, y2 = rect
+        return [
+            [x1, y1],
+            [x2, y1],
+            [x2, y2],
+            [x1, y2],
+            original_occ[4]  # 保留原来的 dummy 文本
+        ]
+
+    adjusted = []
+    for occ in ocr_boxes:
+        quad = occ[:4]
+        xs = [pt[0] for pt in quad]
+        ys = [pt[1] for pt in quad]
+        x1, y1 = min(xs), min(ys)
+        x2, y2 = max(xs), max(ys)
+
+        skip_current = False
+        for lgd in legend_boxes:
+            lx1, ly1, lx2, ly2 = lgd['box']
+
+            # OCR 完全包住 legend → 拆成左右两个 OCR 框
+            if x1 < lx1 and x2 > lx2 and y1 < ly2 and y2 > ly1:
+                left_box = [x1, y1, lx1, y2]
+                right_box = [lx2, y1, x2, y2]
+                if right_box[2] - right_box[0] >= min_width:
+                    adjusted.append(box_from_rect(right_box, occ))
+                if left_box[2] - left_box[0] >= min_width:
+                    adjusted.append(box_from_rect(left_box, occ))
+                skip_current = True
+                break  # 一旦匹配一处 legend 即处理完当前 OCR
+
+            # 仅左边有一点和 legend 重叠 → 切掉左侧
+            elif lx1 < x1 < lx2 and y1 < ly2 and y2 > ly1:
+                new_x1 = max(x1, lx2)
+                if x2 - new_x1 >= min_width:
+                    adjusted.append(box_from_rect([new_x1, y1, x2, y2], occ))
+                skip_current = True
+                break
+
+            # 仅右边有一点和 legend 重叠 → 切掉右侧
+            elif lx1 < x2 < lx2 and y1 < ly2 and y2 > ly1:
+                new_x2 = min(x2, lx1)
+                if new_x2 - x1 >= min_width:
+                    adjusted.append(box_from_rect([x1, y1, new_x2, y2], occ))
+                skip_current = True
+                break
+
+        if not skip_current:
+            adjusted.append(occ)
+
+    return adjusted
+
+
+def process_folder(image_folder, predictor_func, output_folder, label):
+    image_list = sorted([
+        os.path.join(image_folder, f) for f in os.listdir(image_folder)
+        if f.lower().endswith(('.jpg', '.jpeg', '.png', '.tif'))
+    ])
+    print(f"\n[{label}] Found {len(image_list)} images in {image_folder}")
+
+    for image_path in image_list:
+        image = load_image_as_opencv_matrix(image_path)
+        raw_ocr_boxes = predictor_func(image)
+        ocr_boxes_with_dummy_text = [box + ['dummy'] for box in raw_ocr_boxes]
+
+        filename = os.path.splitext(os.path.basename(image_path))[0]
+        txt_path = os.path.join(image_folder, filename + ".txt")
+
+        if not os.path.isfile(txt_path):
+            print(f"[WARNING] No legend box file found for {filename}")
+            continue
+
+        legend_results_ori = []
+        with open(txt_path, 'r') as f:
+            for line in f:
+                coords = list(map(int, line.strip().split(',')))
+                if len(coords) != 8:
+                    continue
+                xs = coords[::2]
+                ys = coords[1::2]
+                x1, y1 = min(xs), min(ys)
+                x2, y2 = max(xs), max(ys)
+                legend_results_ori.append({
+                    'box': [x1, y1, x2, y2],
+                    'bgr': [0, 0, 0],
+                    'mask': None,
+                    'color': '',
+                    'polygons': [[[]]],
+                    'mappingArea': '',
+                })
+
+        # ✅ 过滤掉完全被 legend 框包住的 OCR 框
+        ocr_boxes_with_dummy_text = filter_ocr_boxes_inside_legends(
+            ocr_boxes_with_dummy_text, legend_results_ori
+        )
+
+        ocr_boxes_with_dummy_text = adjust_ocr_boxes_by_cutting_overlapping_legends(
+            ocr_boxes_with_dummy_text, legend_results_ori
+        )
+
+        matched_legends = filter_legends_with_ocr(legend_results_ori, ocr_boxes_with_dummy_text)
+        print(f"{label} - {filename}: {len(matched_legends)} matched legends (from {len(legend_results_ori)})")
+
+        if output_folder:
+            os.makedirs(output_folder, exist_ok=True)
+            out_path = os.path.join(output_folder, f"{filename}_matched.jpg")
+            vis = visualize_matches(image.copy(), legend_results_ori, matched_legends, ocr_boxes_with_dummy_text)
+            draw_and_save(vis, out_path)
+
+def main(args):
+    print("cuda:", args.cuda)
+    ocr_predictor = craft_predictor(model_path=args.model_path, use_cuda=args.cuda)
+    ocr_predictor.load_craft_model()
+
+    predictor = lambda img: ocr_predictor.predict_main_map_box(img)
+    label = 'mainmap'
+
+    process_folder(
+        image_folder=args.image_folder,
+        predictor_func=predictor,
+        output_folder=args.output_dir if args.save else None,
+        label=label
+    )
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--image_folder', type=str, required=True, help='Path to the folder containing images')
+    parser.add_argument('--model_path', type=str, required=True, help='Path to the model weights')
+    parser.add_argument('--scale', type=float, default=1.0, help='scaling factor (default = 1.0)')
+    parser.add_argument('--cuda', action='store_true', help='Use GPU for inference if available')
+    parser.add_argument('--save', action='store_true', help='Whether to save the visualized result images')
+    parser.add_argument('--output_dir', type=str, default='results/', help='Directory to save output images')
+    args = parser.parse_args()
+
+    main(args)
