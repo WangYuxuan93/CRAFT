@@ -18,7 +18,8 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from utils import file_utils, craft_utils, imgproc
+import craft_utils
+import imgproc
 
 from net.craft import CRAFT
 from merge import merge_boxes

@@ -3,7 +3,7 @@ import argparse
 import cv2
 from visualize import overlay_boxes_on_image
 #from predict import predict_legend_box, load_craft_model, predict_main_map_box
-from utils import imgproc
+from . import imgproc
 from predict import craft_predictor
 
 def draw_and_save(image, boxes, save_path):

@@ -1,68 +1,21 @@
 import os
 import argparse
 import cv2
-from visualize import overlay_boxes_on_image
-from utils import imgproc
-from predict import craft_predictor
 import numpy as np
 from io import BytesIO
+from paddleocr import PaddleOCR
+from predict import craft_predictor
 
 
-def draw_and_save(image, save_path):
-    cv2.imwrite(save_path, image)
-    print(f"Saved visualization to {save_path}")
-
-def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes):
-    overlay = image.copy()
-    alpha = 0.4
-    matched_ocr_set = set()
-
-    # Draw all legend boxes (green)
-    for lgd in legend_results_ori:
-        x1, y1, x2, y2 = lgd['box']
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), -1)
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 200, 0), 2)
-
-    # Draw matched OCR boxes (red) and connect lines
-    for lgd in matched_legends:
-        lx1, ly1, lx2, ly2 = lgd['box']
-        legend_center = ((lx1 + lx2) // 2, (ly1 + ly2) // 2)
-
-        for idx in lgd['matched_indices']:
-            matched_ocr_set.add(idx)
-            quad = ocr_boxes[idx][:4]
-            xs = [pt[0] for pt in quad]
-            ys = [pt[1] for pt in quad]
-            x1, y1 = min(xs), min(ys)
-            x2, y2 = max(xs), max(ys)
-            ox, oy = (x1 + x2) // 2, (y1 + y2) // 2
-
-            cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), -1)
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 180), 2)
-            cv2.line(image, legend_center, (ox, oy), (0, 0, 200), 2)
-
-    # Draw unmatched OCR boxes (blue)
-    for idx, occ in enumerate(ocr_boxes):
-        if idx in matched_ocr_set:
-            continue
-        quad = occ[:4]
-        xs = [pt[0] for pt in quad]
-        ys = [pt[1] for pt in quad]
-        x1, y1 = min(xs), min(ys)
-        x2, y2 = max(xs), max(ys)
-        cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
-
-    combined = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
-    return combined
-
-def load_image_as_opencv_matrix(local_filepath):
-    with open(local_filepath, 'rb') as f:
-        file_bytes = f.read()
-    image_cache = BytesIO(file_bytes)
-    image_data = np.asarray(bytearray(image_cache.read()), dtype=np.uint8)
-    image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
-    return image
-
+# Initialize OCR model once
+ocr_model = PaddleOCR(
+    det=True,
+    rec=True,
+    use_angle_cls=True,
+    rec_model_dir='model/PP-OCRv4_server_rec_doc_infer',
+    rec_char_dict_path='model/server_dict.txt',
+    use_space_char=True
+)
 
 def filter_legends_with_ocr(legend_results_ori, ocr_boxes):
     matched_legends = []
@@ -274,7 +227,125 @@ def adjust_ocr_boxes_by_cutting_overlapping_legends(ocr_boxes, legend_boxes, min
     return adjusted
 
 
-def process_folder(image_folder, predictor_func, output_folder, label):
+def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, recognized_texts):
+    overlay = image.copy()
+    alpha = 0.4
+    matched_ocr_set = set()
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    font_thickness = 1
+    font_color = (0, 0, 0)  # 黑色文字
+    bg_color = (200, 255, 200)  # 浅绿色背景框
+
+    # Draw all legend boxes (green)
+    for lgd in legend_results_ori:
+        x1, y1, x2, y2 = lgd['box']
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), -1)
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 200, 0), 2)
+
+    # Draw matched OCR boxes (red) and connect lines
+    for lgd in matched_legends:
+        lx1, ly1, lx2, ly2 = lgd['box']
+        legend_center = ((lx1 + lx2) // 2, (ly1 + ly2) // 2)
+
+        collected_texts = []
+
+        for idx in lgd['matched_indices']:
+            matched_ocr_set.add(idx)
+            quad = ocr_boxes[idx][:4]
+            text = recognized_texts.get(idx, ('', 0.0))[0]
+            if text.strip():
+                collected_texts.append(text.strip())
+
+            xs = [pt[0] for pt in quad]
+            ys = [pt[1] for pt in quad]
+            x1, y1 = min(xs), min(ys)
+            x2, y2 = max(xs), max(ys)
+            ox, oy = (x1 + x2) // 2, (y1 + y2) // 2
+
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), -1)
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 180), 2)
+            cv2.line(image, legend_center, (ox, oy), (0, 0, 200), 2)
+
+        # 显示合并后的识别文本
+        if collected_texts:
+            text_to_show = ' '.join(collected_texts)
+            text_size = cv2.getTextSize(text_to_show, font, font_scale, font_thickness)[0]
+            tx, ty = lx1, ly1 - 5
+            cv2.rectangle(image, (tx, ty - text_size[1] - 4), (tx + text_size[0] + 4, ty), bg_color, -1)
+            cv2.putText(image, text_to_show, (tx + 2, ty - 2), font, font_scale, font_color, font_thickness, cv2.LINE_AA)
+
+    # Draw unmatched OCR boxes (blue)
+    for idx, occ in enumerate(ocr_boxes):
+        if idx in matched_ocr_set:
+            continue
+        quad = occ[:4]
+        xs = [pt[0] for pt in quad]
+        ys = [pt[1] for pt in quad]
+        x1, y1 = min(xs), min(ys)
+        x2, y2 = max(xs), max(ys)
+        cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+    combined = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+    return combined
+
+
+def order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    return rect
+
+def crop_quad(image, quad):
+    quad_np = np.array(quad, dtype=np.float32).reshape((4, 2))
+    rect = order_points(quad_np)
+    (tl, tr, br, bl) = rect
+    widthA = np.linalg.norm(br - bl)
+    widthB = np.linalg.norm(tr - tl)
+    heightA = np.linalg.norm(tr - br)
+    heightB = np.linalg.norm(tl - bl)
+    maxWidth = int(max(widthA, widthB))
+    maxHeight = int(max(heightA, heightB))
+    dst = np.array([
+        [0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]
+    ], dtype="float32")
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+    return warped
+
+def recognize_text_from_indices(image, ocr_boxes, indices):
+    result_dict = {}
+    for idx in indices:
+        box = ocr_boxes[idx]
+        quad = box[:4]
+        cropped = crop_quad(image, quad)
+        ocr_result = ocr_model.ocr(cropped, cls=True)
+        if ocr_result and isinstance(ocr_result, list) and len(ocr_result) > 0 and \
+           ocr_result[0] and isinstance(ocr_result[0], list) and len(ocr_result[0]) > 0:
+            result_text = ocr_result[0][0][1][0]
+            score = ocr_result[0][0][1][1]
+        else:
+            result_text, score = '', 0.0
+        result_dict[idx] = (result_text, score)
+    return result_dict
+
+def load_image_as_opencv_matrix(local_filepath):
+    with open(local_filepath, 'rb') as f:
+        file_bytes = f.read()
+    image_cache = BytesIO(file_bytes)
+    image_data = np.asarray(bytearray(image_cache.read()), dtype=np.uint8)
+    return cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+
+def draw_and_save(image, save_path):
+    cv2.imwrite(save_path, image)
+    print(f"Saved visualization to {save_path}")
+
+def process_folder(image_folder, predictor_func, output_folder, label, use_ocr_legend=False):
     image_list = sorted([
         os.path.join(image_folder, f) for f in os.listdir(image_folder)
         if f.lower().endswith(('.jpg', '.jpeg', '.png', '.tif'))
@@ -284,25 +355,22 @@ def process_folder(image_folder, predictor_func, output_folder, label):
     for image_path in image_list:
         image = load_image_as_opencv_matrix(image_path)
         raw_ocr_boxes = predictor_func(image)
-        ocr_boxes_with_dummy_text = [box + ['dummy'] for box in raw_ocr_boxes]
-
         filename = os.path.splitext(os.path.basename(image_path))[0]
-        txt_path = os.path.join(image_folder, filename + ".txt")
-
-        if not os.path.isfile(txt_path):
-            print(f"[WARNING] No legend box file found for {filename}")
-            continue
 
         legend_results_ori = []
-        with open(txt_path, 'r') as f:
-            for line in f:
-                coords = list(map(int, line.strip().split(',')))
-                if len(coords) != 8:
-                    continue
-                xs = coords[::2]
-                ys = coords[1::2]
-                x1, y1 = min(xs), min(ys)
-                x2, y2 = max(xs), max(ys)
+        if use_ocr_legend:
+            print(f"[INFO] Using OCR to detect legend boxes + recognize text for {filename}")
+            ocr_result = ocr_model.ocr(image, det=True, rec=True, cls=False)
+            for box in ocr_result:
+                if not box or not isinstance(box[0], list) or len(box[0]) != 4:
+                    continue  # 过滤异常 box
+                coords = np.array(box[0], dtype=np.int32)
+                xs = coords[:, 0]
+                ys = coords[:, 1]
+                x1, y1 = np.min(xs), np.min(ys)
+                x2, y2 = np.max(xs), np.max(ys)
+                text = box[1][0]
+                score = box[1][1]
                 legend_results_ori.append({
                     'box': [x1, y1, x2, y2],
                     'bgr': [0, 0, 0],
@@ -310,49 +378,69 @@ def process_folder(image_folder, predictor_func, output_folder, label):
                     'color': '',
                     'polygons': [[[]]],
                     'mappingArea': '',
+                    'text': text,
+                    'score': score
                 })
+        else:
+            txt_path = os.path.join(image_folder, filename + ".txt")
+            if not os.path.isfile(txt_path):
+                print(f"[WARNING] No legend box file found for {filename}")
+                continue
+            with open(txt_path, 'r') as f:
+                for line in f:
+                    coords = list(map(int, line.strip().split(',')))
+                    if len(coords) != 8:
+                        continue
+                    xs = coords[::2]
+                    ys = coords[1::2]
+                    x1, y1 = min(xs), min(ys)
+                    x2, y2 = max(xs), max(ys)
+                    legend_results_ori.append({
+                        'box': [x1, y1, x2, y2],
+                        'bgr': [0, 0, 0],
+                        'mask': None,
+                        'color': '',
+                        'polygons': [[[]]],
+                        'mappingArea': ''
+                    })
 
-        # ✅ 过滤掉完全被 legend 框包住的 OCR 框
-        ocr_boxes_with_dummy_text = filter_ocr_boxes_inside_legends(
-            ocr_boxes_with_dummy_text, legend_results_ori
-        )
+        # Filter OCR boxes
+        filtered_ocr_boxes = filter_ocr_boxes_inside_legends(raw_ocr_boxes, legend_results_ori)
+        filtered_ocr_boxes = adjust_ocr_boxes_by_cutting_overlapping_legends(filtered_ocr_boxes, legend_results_ori)
 
-        ocr_boxes_with_dummy_text = adjust_ocr_boxes_by_cutting_overlapping_legends(
-            ocr_boxes_with_dummy_text, legend_results_ori
-        )
+        # Match
+        matched_legends = filter_legends_with_ocr(legend_results_ori, filtered_ocr_boxes)
+        matched_indices = set()
+        for lgd in matched_legends:
+            matched_indices.update(lgd['matched_indices'])
 
-        matched_legends = filter_legends_with_ocr(legend_results_ori, ocr_boxes_with_dummy_text)
-        print(f"{label} - {filename}: {len(matched_legends)} matched legends (from {len(legend_results_ori)})")
+        recognized_texts = recognize_text_from_indices(image, filtered_ocr_boxes, matched_indices)
 
         if output_folder:
             os.makedirs(output_folder, exist_ok=True)
             out_path = os.path.join(output_folder, f"{filename}_matched.jpg")
-            vis = visualize_matches(image.copy(), legend_results_ori, matched_legends, ocr_boxes_with_dummy_text)
+            vis = visualize_matches(image.copy(), legend_results_ori, matched_legends, filtered_ocr_boxes, recognized_texts)
             draw_and_save(vis, out_path)
 
 def main(args):
     print("cuda:", args.cuda)
     ocr_predictor = craft_predictor(model_path=args.model_path, use_cuda=args.cuda)
     ocr_predictor.load_craft_model()
-
     predictor = lambda img: ocr_predictor.predict_main_map_box(img)
-    label = 'mainmap'
-
     process_folder(
         image_folder=args.image_folder,
         predictor_func=predictor,
-        output_folder=args.output_dir if args.save else None,
-        label=label
+        output_folder=args.output_dir,
+        label='mainmap',
+        use_ocr_legend=args.use_ocr_legend
     )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image_folder', type=str, required=True, help='Path to the folder containing images')
-    parser.add_argument('--model_path', type=str, required=True, help='Path to the model weights')
-    parser.add_argument('--scale', type=float, default=1.0, help='scaling factor (default = 1.0)')
-    parser.add_argument('--cuda', action='store_true', help='Use GPU for inference if available')
-    parser.add_argument('--save', action='store_true', help='Whether to save the visualized result images')
-    parser.add_argument('--output_dir', type=str, default='results/', help='Directory to save output images')
+    parser.add_argument('--image_folder', type=str, required=True)
+    parser.add_argument('--model_path', type=str, required=True)
+    parser.add_argument('--output_dir', type=str, default='results/')
+    parser.add_argument('--cuda', action='store_true')
+    parser.add_argument('--use_ocr_legend', action='store_true', help='Use PaddleOCR to detect legends')
     args = parser.parse_args()
-
     main(args)
