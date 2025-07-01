@@ -7,8 +7,8 @@ from paddleocr import PaddleOCR
 from predict import craft_predictor
 
 import logging
-logging.getLogger('ppocr').setLevel(logging.ERROR)
-logging.getLogger('ppocr').propagate = False
+#logging.getLogger('ppocr').setLevel(logging.ERROR)
+#logging.getLogger('ppocr').propagate = False
 
 # Initialize OCR model once
 """
@@ -507,18 +507,28 @@ def main(args):
         print("Using PaddleOCR for OCR box + text detection...")
 
         def paddleocr_detector(image):
-            results = ocr_model.ocr(image, cls=True)
+            results = ocr_model.ocr(image)
+            
+            # results 是一个列表（可能是多页），我们只处理第一页
+            if not results or not isinstance(results[0], dict):
+                return [], {}
+
+            res_dict = results[0]['res']
+            polys = res_dict['dt_polys']           # (N, 4, 2)
+            texts = res_dict['rec_texts']
+            scores = res_dict['rec_scores']
+
             boxes = []
-            texts = {}
-            for idx, line in enumerate(results[0]):
-                box_coords = line[0]  # 4-point box
-                text, score = line[1]
-                # ✅ 转为整数坐标
-                box = [[int(round(x)), int(round(y))] for x, y in box_coords]
-                box.append(text)
-                boxes.append(box)
-                texts[idx] = (text, score)
-            return boxes, texts
+            recognized_texts = {}
+
+            for idx, (poly, text, score) in enumerate(zip(polys, texts, scores)):
+                # 转换为整数格式 + dummy text
+                quad = [[int(pt[0]), int(pt[1])] for pt in poly]
+                quad.append(text)  # 第五个元素是文本，用于兼容旧格式
+                boxes.append(quad)
+                recognized_texts[idx] = (text, float(score))
+
+            return boxes, recognized_texts
 
         predictor_func = paddleocr_detector
         predictor_mode = 'paddle'
