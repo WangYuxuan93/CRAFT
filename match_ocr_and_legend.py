@@ -6,6 +6,8 @@ from io import BytesIO
 from paddleocr import PaddleOCR
 from predict import craft_predictor
 
+from PIL import ImageFont, ImageDraw, Image
+
 import logging
 #logging.getLogger('ppocr').setLevel(logging.ERROR)
 #logging.getLogger('ppocr').propagate = False
@@ -29,6 +31,30 @@ ocr_model = PaddleOCR(
      use_doc_unwarping=False,
      use_textline_orientation=False,
 )
+
+def draw_text_cn(cv2_img, text, pos, font_size=20, font_path="simhei.ttf", color=(0, 0, 0)):
+    """
+    在 OpenCV 图像上绘制中文字符，支持字体选择。
+    参数：
+        cv2_img: OpenCV 格式图像 (BGR)
+        text: 中文字符串
+        pos: 左上角位置 (x, y)
+        font_size: 字体大小
+        font_path: 字体文件路径（如 simhei.ttf）
+        color: BGR 颜色
+    返回：
+        带中文的 OpenCV 图像
+    """
+    img_pil = Image.fromarray(cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img_pil)
+    try:
+        font = ImageFont.truetype(font_path, font_size)
+    except Exception as e:
+        print(f"[WARNING] Failed to load font: {font_path}. Error: {e}")
+        font = ImageFont.load_default()
+
+    draw.text(pos, text, font=font, fill=color[::-1])  # PIL uses RGB, reverse BGR
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
 def filter_legends_with_ocr(legend_results_ori, ocr_boxes):
     matched_legends = []
@@ -340,7 +366,8 @@ def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, rec
                 canvas = np.ones((h + space, w, 3), dtype=np.uint8) * 255  # 白底
                 canvas[space:, :] = cropped
                 label = text.strip()
-                cv2.putText(canvas, label, (2, space - 5), font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+                #cv2.putText(canvas, label, (2, space - 5), font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+                canvas = draw_text_cn(canvas, label, (2, 2), font_size=18, font_path='simhei.ttf', color=(0, 0, 0))
                 save_path = os.path.join(save_subdir, f"{box_save_counter:03d}.jpg")
                 cv2.imwrite(save_path, canvas)
                 box_save_counter += 1
@@ -348,10 +375,8 @@ def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, rec
         # 显示合并后的识别文本
         if collected_texts:
             text_to_show = ' '.join(collected_texts)
-            text_size = cv2.getTextSize(text_to_show, font, font_scale, font_thickness)[0]
             tx, ty = lx1, ly1 - 5
-            cv2.rectangle(image, (tx, ty - text_size[1] - 4), (tx + text_size[0] + 4, ty), bg_color, -1)
-            cv2.putText(image, text_to_show, (tx + 2, ty - 2), font, font_scale, font_color, font_thickness, cv2.LINE_AA)
+            image = draw_text_cn(image, text_to_show, (tx, ty - 20), font_size=20, font_path='simhei.ttf', color=(0, 0, 0))
 
     # Draw unmatched OCR boxes (blue)
     for idx, occ in enumerate(ocr_boxes):
