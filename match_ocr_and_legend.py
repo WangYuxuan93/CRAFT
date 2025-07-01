@@ -413,7 +413,7 @@ def draw_and_save(image, save_path):
     print(f"Saved visualization to {save_path}")
 
 
-def process_folder(image_folder, predictor_func, output_folder, label, use_ocr_legend=False, save_ocr=True, predictor_mode='craft'):
+def process_folder(image_folder, predictor_func, output_folder, label, save_ocr=True, predictor_mode='craft'):
     image_list = sorted([
         os.path.join(image_folder, f) for f in os.listdir(image_folder)
         if f.lower().endswith(('.jpg', '.jpeg', '.png', '.tif'))
@@ -517,7 +517,6 @@ def main(args):
         predictor_func=predictor_func,
         output_folder=args.output_dir,
         label='mainmap',
-        use_ocr_legend=args.use_ocr_legend,
         save_ocr=args.save_ocr,
         predictor_mode=predictor_mode
     )
@@ -529,7 +528,6 @@ if __name__ == "__main__":
     parser.add_argument('--output_dir', type=str, default='results/')
     parser.add_argument('--cuda', action='store_true')
     parser.add_argument('--save_ocr', action='store_true')
-    parser.add_argument('--use_ocr_legend', action='store_true', help='Use PaddleOCR to detect legends')
     parser.add_argument('--ocr_detector', type=str, choices=['craft', 'paddle'], default='craft',
                     help='Choose OCR detector: craft (default) or paddle')
     args = parser.parse_args()
