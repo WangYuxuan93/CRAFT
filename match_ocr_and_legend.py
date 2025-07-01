@@ -503,8 +503,9 @@ def main(args):
             for idx, line in enumerate(results[0]):
                 box_coords = line[0]  # 4-point box
                 text, score = line[1]
-                box = [list(pt) for pt in box_coords]
-                box.append(text)  # dummy 5th element
+                # ✅ 转为整数坐标
+                box = [[int(round(x)), int(round(y))] for x, y in box_coords]
+                box.append(text)
                 boxes.append(box)
                 texts[idx] = (text, score)
             return boxes, texts
