@@ -11,6 +11,7 @@ logging.getLogger('ppocr').setLevel(logging.ERROR)
 logging.getLogger('ppocr').propagate = False
 
 # Initialize OCR model once
+"""
 ocr_model = PaddleOCR(
     det=True,
     rec=True,
@@ -18,6 +19,15 @@ ocr_model = PaddleOCR(
     rec_model_dir='model/PP-OCRv4_server_rec_doc_infer',
     rec_char_dict_path='model/server_dict.txt',
     use_space_char=True
+)
+"""
+
+ocr_model = PaddleOCR(
+     text_detection_model_name="PP-OCRv5_server_det",
+     text_recognition_model_name="PP-OCRv5_server_rec",
+     use_doc_orientation_classify=False,
+     use_doc_unwarping=False,
+     use_textline_orientation=False,
 )
 
 def filter_legends_with_ocr(legend_results_ori, ocr_boxes):
