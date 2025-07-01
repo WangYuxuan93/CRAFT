@@ -227,17 +227,47 @@ def adjust_ocr_boxes_by_cutting_overlapping_legends(ocr_boxes, legend_boxes, min
     return adjusted
 
 
-def sort_indices_by_reading_order(indices, ocr_boxes):
-    def box_key(idx):
+def sort_indices_by_reading_order(indices, ocr_boxes, line_tolerance_ratio=0.6):
+    if not indices:
+        return []
+
+    # 提取中心点和高度信息
+    centers = []
+    heights = []
+    for idx in indices:
         box = ocr_boxes[idx][:4]
-        xs = [pt[0] for pt in box]
-        ys = [pt[1] for pt in box]
+        xs = [p[0] for p in box]
+        ys = [p[1] for p in box]
         x1, y1 = min(xs), min(ys)
         x2, y2 = max(xs), max(ys)
-        return (round(y1 / 10) * 10, x1)  # 用近似 y 分组，再按 x 排序
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+        h = y2 - y1
+        centers.append((idx, cx, cy))
+        heights.append(h)
 
-    return sorted(indices, key=box_key)
+    avg_height = np.median(heights)
+    line_thresh = avg_height * line_tolerance_ratio
 
+    # 按 y 坐标分行
+    lines = []
+    for idx, cx, cy in sorted(centers, key=lambda x: x[2]):
+        placed = False
+        for line in lines:
+            if abs(cy - line[0][2]) < line_thresh:
+                line.append((idx, cx, cy))
+                placed = True
+                break
+        if not placed:
+            lines.append([(idx, cx, cy)])
+
+    # 每行内部按 x 排序，并拼接结果
+    sorted_indices = []
+    for line in lines:
+        line_sorted = sorted(line, key=lambda x: x[1])  # 按 cx 排
+        sorted_indices.extend([idx for idx, _, _ in line_sorted])
+
+    return sorted_indices
 
 def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, recognized_texts, save_subdir=None):
     import os
