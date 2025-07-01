@@ -272,6 +272,7 @@ def sort_indices_by_reading_order(indices, ocr_boxes, line_tolerance_ratio=0.6):
 def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, recognized_texts, save_subdir=None):
     import os
     overlay = image.copy()
+    raw_image = image.copy()  # ✅ 用于截图，避免画框干扰
     alpha = 0.4
     matched_ocr_set = set()
 
@@ -316,9 +317,9 @@ def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, rec
             cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 180), 2)
             cv2.line(image, legend_center, (ox, oy), (0, 0, 200), 2)
 
-            # ✅ 保存截图 + 添加上方文字
+            # ✅ 保存截图 + 添加上方文字（使用 raw_image）
             if save_subdir:
-                cropped = crop_quad(image, quad)
+                cropped = crop_quad(raw_image, quad)
                 h, w = cropped.shape[:2]
                 space = 25  # 留出空白区域高度
                 canvas = np.ones((h + space, w, 3), dtype=np.uint8) * 255  # 白底
