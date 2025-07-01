@@ -6,6 +6,9 @@ from io import BytesIO
 from paddleocr import PaddleOCR
 from predict import craft_predictor
 
+import logging
+logging.getLogger('ppocr').setLevel(logging.ERROR)
+logging.getLogger('ppocr').propagate = False
 
 # Initialize OCR model once
 ocr_model = PaddleOCR(
@@ -174,13 +177,15 @@ def filter_ocr_boxes_inside_legends(ocr_boxes, legend_boxes, iou_thresh=0.9):
 def adjust_ocr_boxes_by_cutting_overlapping_legends(ocr_boxes, legend_boxes, min_width=5):
     def box_from_rect(rect, original_occ):
         x1, y1, x2, y2 = rect
-        return [
+        box = [
             [x1, y1],
             [x2, y1],
             [x2, y2],
-            [x1, y2],
-            original_occ[4]  # 保留原来的 dummy 文本
+            [x1, y2]
         ]
+        if len(original_occ) == 5:
+            box.append(original_occ[4])  # 保留原来的 dummy 文本（paddleocr 会有）
+        return box
 
     adjusted = []
     for occ in ocr_boxes:
@@ -407,7 +412,8 @@ def draw_and_save(image, save_path):
     cv2.imwrite(save_path, image)
     print(f"Saved visualization to {save_path}")
 
-def process_folder(image_folder, predictor_func, output_folder, label, use_ocr_legend=False, save_ocr=True):
+
+def process_folder(image_folder, predictor_func, output_folder, label, use_ocr_legend=False, save_ocr=True, predictor_mode='craft'):
     image_list = sorted([
         os.path.join(image_folder, f) for f in os.listdir(image_folder)
         if f.lower().endswith(('.jpg', '.jpeg', '.png', '.tif'))
@@ -416,8 +422,13 @@ def process_folder(image_folder, predictor_func, output_folder, label, use_ocr_l
 
     for image_path in image_list:
         image = load_image_as_opencv_matrix(image_path)
-        raw_ocr_boxes = predictor_func(image)
         filename = os.path.splitext(os.path.basename(image_path))[0]
+
+        if predictor_mode == 'craft':
+            raw_ocr_boxes = predictor_func(image)
+            recognized_texts = None  # 稍后再识别
+        else:  # paddle
+            raw_ocr_boxes, recognized_texts = predictor_func(image)
 
         legend_results_ori = []
         txt_path = os.path.join(image_folder, filename + ".txt")
@@ -452,31 +463,63 @@ def process_folder(image_folder, predictor_func, output_folder, label, use_ocr_l
         for lgd in matched_legends:
             matched_indices.update(lgd['matched_indices'])
 
-        # 对 matched_legends 每个 matched_indices 排序
         for lgd in matched_legends:
             lgd['matched_indices'] = sort_indices_by_reading_order(lgd['matched_indices'], filtered_ocr_boxes)
 
-        recognized_texts = recognize_text_from_indices(image, filtered_ocr_boxes, matched_indices)
+        if predictor_mode == 'craft':
+            recognized_texts = recognize_text_from_indices(image, filtered_ocr_boxes, matched_indices)
 
         if output_folder:
             os.makedirs(output_folder, exist_ok=True)
             out_path = os.path.join(output_folder, f"{filename}_matched.jpg")
             ocr_subfolder = os.path.join(output_folder, f"{filename}_ocr")
-            vis = visualize_matches(image.copy(), legend_results_ori, matched_legends, filtered_ocr_boxes, recognized_texts, save_subdir=ocr_subfolder if save_ocr else None)
+            vis = visualize_matches(
+                image.copy(),
+                legend_results_ori,
+                matched_legends,
+                filtered_ocr_boxes,
+                recognized_texts,
+                save_subdir=ocr_subfolder if save_ocr else None
+            )
             draw_and_save(vis, out_path)
+
 
 def main(args):
     print("cuda:", args.cuda)
-    ocr_predictor = craft_predictor(model_path=args.model_path, use_cuda=args.cuda)
-    ocr_predictor.load_craft_model()
-    predictor = lambda img: ocr_predictor.predict_main_map_box(img)
+
+    if args.ocr_detector == 'craft':
+        print("Using CRAFT for OCR box detection...")
+        ocr_predictor = craft_predictor(model_path=args.model_path, use_cuda=args.cuda)
+        ocr_predictor.load_craft_model()
+        predictor_func = lambda img: ocr_predictor.predict_main_map_box(img)
+        predictor_mode = 'craft'
+    else:
+        print("Using PaddleOCR for OCR box + text detection...")
+
+        def paddleocr_detector(image):
+            results = ocr_model.ocr(image, cls=True)
+            boxes = []
+            texts = {}
+            for idx, line in enumerate(results[0]):
+                box_coords = line[0]  # 4-point box
+                text, score = line[1]
+                box = [list(pt) for pt in box_coords]
+                box.append(text)  # dummy 5th element
+                boxes.append(box)
+                texts[idx] = (text, score)
+            return boxes, texts
+
+        predictor_func = paddleocr_detector
+        predictor_mode = 'paddle'
+
     process_folder(
         image_folder=args.image_folder,
-        predictor_func=predictor,
+        predictor_func=predictor_func,
         output_folder=args.output_dir,
         label='mainmap',
         use_ocr_legend=args.use_ocr_legend,
-        save_ocr=args.save_ocr
+        save_ocr=args.save_ocr,
+        predictor_mode=predictor_mode
     )
 
 if __name__ == "__main__":
@@ -487,5 +530,7 @@ if __name__ == "__main__":
     parser.add_argument('--cuda', action='store_true')
     parser.add_argument('--save_ocr', action='store_true')
     parser.add_argument('--use_ocr_legend', action='store_true', help='Use PaddleOCR to detect legends')
+    parser.add_argument('--ocr_detector', type=str, choices=['craft', 'paddle'], default='craft',
+                    help='Choose OCR detector: craft (default) or paddle')
     args = parser.parse_args()
     main(args)
