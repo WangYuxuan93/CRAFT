@@ -8,9 +8,10 @@ from predict import craft_predictor
 
 from PIL import ImageFont, ImageDraw, Image
 
-import logging
-#logging.getLogger('ppocr').setLevel(logging.ERROR)
-#logging.getLogger('ppocr').propagate = False
+from paddleocr import TextRecognition
+
+# 初始化 PaddleOCR 文本识别模型（v5新API）
+text_rec_model = TextRecognition(model_name="PP-OCRv5_server_rec")
 
 # Initialize OCR model once
 """
@@ -445,20 +446,15 @@ def recognize_text_from_indices(image, ocr_boxes, indices):
         quad = box[:4]
         cropped = crop_quad(image, quad)
 
-        results = ocr_model.ocr(cropped, cls=True)
-        if not results or not isinstance(results[0], dict):
-            result_dict[idx] = ('', 0.0)
-            continue
-
-        res_dict = results[0]
-        texts = res_dict.get('rec_texts', [])
-        scores = res_dict.get('rec_scores', [])
-
-        if texts and scores:
-            result_dict[idx] = (texts[0], float(scores[0]))
+        results = text_rec_model.predict(cropped)
+        print (results)
+        if results and isinstance(results[0], dict):
+            rec_text = results[0].get('rec_text', '')
+            rec_score = results[0].get('rec_score', 0.0)
         else:
-            result_dict[idx] = ('', 0.0)
+            rec_text, rec_score = '', 0.0
 
+        result_dict[idx] = (rec_text, rec_score)
     return result_dict
 
 def load_image_as_opencv_matrix(local_filepath):
