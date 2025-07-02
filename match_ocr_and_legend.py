@@ -463,7 +463,7 @@ def process_folder(image_folder, predictor_func, output_folder, label, save_ocr=
             raw_ocr_boxes = predictor_func(image)
             recognized_texts = None  # 稍后再识别
         else:  # paddle
-            raw_ocr_boxes, recognized_texts = predictor_func(image)
+            raw_ocr_boxes = predictor_func(image)
 
         legend_results_ori = []
         txt_path = os.path.join(image_folder, filename + ".txt")
@@ -501,8 +501,8 @@ def process_folder(image_folder, predictor_func, output_folder, label, save_ocr=
         for lgd in matched_legends:
             lgd['matched_indices'] = sort_indices_by_reading_order(lgd['matched_indices'], filtered_ocr_boxes)
 
-        if predictor_mode == 'craft':
-            recognized_texts = recognize_text_from_indices(image, filtered_ocr_boxes, matched_indices)
+        #if predictor_mode == 'craft':
+        recognized_texts = recognize_text_from_indices(image, filtered_ocr_boxes, matched_indices)
 
         if output_folder:
             os.makedirs(output_folder, exist_ok=True)
@@ -540,20 +540,20 @@ def main(args):
 
             res_dict = results[0]['res']
             polys = res_dict['dt_polys']           # (N, 4, 2)
-            texts = res_dict['rec_texts']
-            scores = res_dict['rec_scores']
+            #texts = res_dict['rec_texts']
+            #scores = res_dict['rec_scores']
 
             boxes = []
-            recognized_texts = {}
+            #recognized_texts = {}
 
-            for idx, (poly, text, score) in enumerate(zip(polys, texts, scores)):
+            for idx, poly in enumerate(polys):
                 # 转换为整数格式 + dummy text
                 quad = [[int(pt[0]), int(pt[1])] for pt in poly]
-                quad.append(text)  # 第五个元素是文本，用于兼容旧格式
+                #quad.append(text)  # 第五个元素是文本，用于兼容旧格式
                 boxes.append(quad)
-                recognized_texts[idx] = (text, float(score))
+                #recognized_texts[idx] = (text, float(score))
 
-            return boxes, recognized_texts
+            return boxes#, recognized_texts
 
         predictor_func = paddleocr_detector
         predictor_mode = 'paddle'
