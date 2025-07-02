@@ -43,7 +43,9 @@ def draw_text_cn(cv2_img, text, pos, font_size=20, font_path="fonts/simhei.ttf",
         font = ImageFont.load_default()
 
     # 文字尺寸
-    text_w, text_h = draw.textsize(text, font=font)
+    bbox = draw.textbbox(pos, text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
 
     if draw_bg:
         # 背景框（带些 padding）
@@ -446,7 +448,7 @@ def recognize_text_from_indices(image, ocr_boxes, indices):
         cropped = crop_quad(image, quad)
 
         results = text_rec_model.predict(cropped)
-        print (results)
+        #print (results)
         if results and isinstance(results[0], dict):
             rec_text = results[0].get('rec_text', '')
             rec_score = results[0].get('rec_score', 0.0)
