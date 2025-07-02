@@ -367,7 +367,7 @@ def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, rec
                 canvas[space:, :] = cropped
                 label = text.strip()
                 #cv2.putText(canvas, label, (2, space - 5), font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-                canvas = draw_text_cn(canvas, label, (2, 2), font_size=18, font_path='simhei.ttf', color=(0, 0, 0))
+                canvas = draw_text_cn(canvas, label, (2, 2), font_size=18, font_path='fonts/simhei.ttf', color=(0, 0, 0))
                 save_path = os.path.join(save_subdir, f"{box_save_counter:03d}.jpg")
                 cv2.imwrite(save_path, canvas)
                 box_save_counter += 1
@@ -376,7 +376,7 @@ def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, rec
         if collected_texts:
             text_to_show = ' '.join(collected_texts)
             tx, ty = lx1, ly1 - 5
-            image = draw_text_cn(image, text_to_show, (tx, ty - 20), font_size=20, font_path='simhei.ttf', color=(0, 0, 0))
+            image = draw_text_cn(image, text_to_show, (tx, ty - 20), font_size=20, font_path='fonts/simhei.ttf', color=(0, 0, 0))
 
     # Draw unmatched OCR boxes (blue)
     for idx, occ in enumerate(ocr_boxes):
@@ -420,6 +420,7 @@ def crop_quad(image, quad):
     warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
     return warped
 
+"""
 def recognize_text_from_indices(image, ocr_boxes, indices):
     result_dict = {}
     for idx in indices:
@@ -434,6 +435,30 @@ def recognize_text_from_indices(image, ocr_boxes, indices):
         else:
             result_text, score = '', 0.0
         result_dict[idx] = (result_text, score)
+    return result_dict
+"""
+
+def recognize_text_from_indices(image, ocr_boxes, indices):
+    result_dict = {}
+    for idx in indices:
+        box = ocr_boxes[idx]
+        quad = box[:4]
+        cropped = crop_quad(image, quad)
+
+        results = ocr_model.ocr(cropped, cls=True)
+        if not results or not isinstance(results[0], dict):
+            result_dict[idx] = ('', 0.0)
+            continue
+
+        res_dict = results[0]
+        texts = res_dict.get('rec_texts', [])
+        scores = res_dict.get('rec_scores', [])
+
+        if texts and scores:
+            result_dict[idx] = (texts[0], float(scores[0]))
+        else:
+            result_dict[idx] = ('', 0.0)
+
     return result_dict
 
 def load_image_as_opencv_matrix(local_filepath):
@@ -538,7 +563,7 @@ def main(args):
             if not results or not isinstance(results[0], dict):
                 return [], {}
 
-            res_dict = results[0]['res']
+            res_dict = results[0]
             polys = res_dict['dt_polys']           # (N, 4, 2)
             #texts = res_dict['rec_texts']
             #scores = res_dict['rec_scores']
