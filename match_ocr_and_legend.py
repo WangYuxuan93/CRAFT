@@ -168,25 +168,21 @@ def filter_legends_with_ocr(legend_results_ori, ocr_boxes):
     return matched_legends
 
 
-def filter_ocr_boxes_inside_legends(ocr_boxes, legend_boxes, iou_thresh=0.8):
-    def compute_iou(boxA, boxB):
-        # box: [x1, y1, x2, y2]
-        xA = max(boxA[0], boxB[0])
-        yA = max(boxA[1], boxB[1])
-        xB = min(boxA[2], boxB[2])
-        yB = min(boxA[3], boxB[3])
+def filter_ocr_boxes_inside_legends(ocr_boxes, legend_boxes, overlap_thresh=0.8):
+    def compute_overlap_ratio(ocr_box, legend_box):
+        xA = max(ocr_box[0], legend_box[0])
+        yA = max(ocr_box[1], legend_box[1])
+        xB = min(ocr_box[2], legend_box[2])
+        yB = min(ocr_box[3], legend_box[3])
 
         interW = max(0, xB - xA)
         interH = max(0, yB - yA)
         interArea = interW * interH
 
-        if interArea == 0:
+        ocr_area = (ocr_box[2] - ocr_box[0]) * (ocr_box[3] - ocr_box[1])
+        if ocr_area == 0:
             return 0.0
-
-        areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
-        areaB = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
-        iou = interArea / float(areaA + areaB - interArea)
-        return iou
+        return interArea / ocr_area  # ⚠️ 注意这里是占 OCR 框的比例
 
     filtered = []
     for occ in ocr_boxes:
@@ -197,16 +193,16 @@ def filter_ocr_boxes_inside_legends(ocr_boxes, legend_boxes, iou_thresh=0.8):
         x2, y2 = max(xs), max(ys)
         ocr_box = [x1, y1, x2, y2]
 
-        is_high_iou = False
+        keep = True
         for lgd in legend_boxes:
             lx1, ly1, lx2, ly2 = lgd['box']
             legend_box = [lx1, ly1, lx2, ly2]
-            iou = compute_iou(ocr_box, legend_box)
-            if iou >= iou_thresh:
-                is_high_iou = True
+            ratio = compute_overlap_ratio(ocr_box, legend_box)
+            if ratio >= overlap_thresh:
+                keep = False
                 break
 
-        if not is_high_iou:
+        if keep:
             filtered.append(occ)
 
     return filtered
