@@ -507,7 +507,7 @@ def process_folder(image_folder, predictor_func, output_folder, label, save_ocr=
                 })
 
         # Filter OCR boxes
-        filtered_ocr_boxes = filter_ocr_boxes_inside_legends(raw_ocr_boxes, legend_results_ori, iou_thresh=0.8)
+        filtered_ocr_boxes = filter_ocr_boxes_inside_legends(raw_ocr_boxes, legend_results_ori, overlap_thresh=0.8)
         filtered_ocr_boxes = adjust_ocr_boxes_by_cutting_overlapping_legends(filtered_ocr_boxes, legend_results_ori)
 
         # Match
