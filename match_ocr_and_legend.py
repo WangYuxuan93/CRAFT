@@ -33,19 +33,7 @@ ocr_model = PaddleOCR(
      use_textline_orientation=False,
 )
 
-def draw_text_cn(cv2_img, text, pos, font_size=20, font_path="simhei.ttf", color=(0, 0, 0)):
-    """
-    在 OpenCV 图像上绘制中文字符，支持字体选择。
-    参数：
-        cv2_img: OpenCV 格式图像 (BGR)
-        text: 中文字符串
-        pos: 左上角位置 (x, y)
-        font_size: 字体大小
-        font_path: 字体文件路径（如 simhei.ttf）
-        color: BGR 颜色
-    返回：
-        带中文的 OpenCV 图像
-    """
+def draw_text_cn(cv2_img, text, pos, font_size=20, font_path="fonts/simhei.ttf", color=(0, 0, 0), bg_color=(255, 255, 255), draw_bg=True):
     img_pil = Image.fromarray(cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(img_pil)
     try:
@@ -54,8 +42,19 @@ def draw_text_cn(cv2_img, text, pos, font_size=20, font_path="simhei.ttf", color
         print(f"[WARNING] Failed to load font: {font_path}. Error: {e}")
         font = ImageFont.load_default()
 
-    draw.text(pos, text, font=font, fill=color[::-1])  # PIL uses RGB, reverse BGR
+    # 文字尺寸
+    text_w, text_h = draw.textsize(text, font=font)
+
+    if draw_bg:
+        # 背景框（带些 padding）
+        padding = 2
+        x, y = pos
+        draw.rectangle([x - padding, y - padding, x + text_w + padding, y + text_h + padding], fill=bg_color)
+
+    draw.text(pos, text, font=font, fill=color[::-1])  # BGR -> RGB
     return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+
 
 def filter_legends_with_ocr(legend_results_ori, ocr_boxes):
     matched_legends = []
@@ -167,7 +166,7 @@ def filter_legends_with_ocr(legend_results_ori, ocr_boxes):
     return matched_legends
 
 
-def filter_ocr_boxes_inside_legends(ocr_boxes, legend_boxes, iou_thresh=0.9):
+def filter_ocr_boxes_inside_legends(ocr_boxes, legend_boxes, iou_thresh=0.8):
     def compute_iou(boxA, boxB):
         # box: [x1, y1, x2, y2]
         xA = max(boxA[0], boxB[0])
@@ -368,7 +367,16 @@ def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, rec
                 canvas[space:, :] = cropped
                 label = text.strip()
                 #cv2.putText(canvas, label, (2, space - 5), font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-                canvas = draw_text_cn(canvas, label, (2, 2), font_size=18, font_path='fonts/simhei.ttf', color=(0, 0, 0))
+                #canvas = draw_text_cn(canvas, label, (2, 2), font_size=18, font_path='fonts/simhei.ttf', color=(0, 0, 0))
+                canvas = draw_text_cn(
+                    canvas, label, (2, 2),
+                    font_size=14,
+                    font_path='fonts/simhei.ttf',
+                    color=(0, 0, 0),
+                    bg_color=(255, 255, 255),
+                    draw_bg=True
+                )
+                
                 save_path = os.path.join(save_subdir, f"{box_save_counter:03d}.jpg")
                 cv2.imwrite(save_path, canvas)
                 box_save_counter += 1
@@ -377,7 +385,15 @@ def visualize_matches(image, legend_results_ori, matched_legends, ocr_boxes, rec
         if collected_texts:
             text_to_show = ' '.join(collected_texts)
             tx, ty = lx1, ly1 - 5
-            image = draw_text_cn(image, text_to_show, (tx, ty - 20), font_size=20, font_path='fonts/simhei.ttf', color=(0, 0, 0))
+            #image = draw_text_cn(image, text_to_show, (tx, ty - 20), font_size=20, font_path='fonts/simhei.ttf', color=(0, 0, 0))
+            image = draw_text_cn(
+                        image, text_to_show, (tx, ty - 20),
+                        font_size=14,
+                        font_path='fonts/simhei.ttf',
+                        color=(0, 0, 0),
+                        bg_color=(255, 255, 200),
+                        draw_bg=True
+                    )
 
     # Draw unmatched OCR boxes (blue)
     for idx, occ in enumerate(ocr_boxes):
@@ -421,23 +437,6 @@ def crop_quad(image, quad):
     warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
     return warped
 
-"""
-def recognize_text_from_indices(image, ocr_boxes, indices):
-    result_dict = {}
-    for idx in indices:
-        box = ocr_boxes[idx]
-        quad = box[:4]
-        cropped = crop_quad(image, quad)
-        ocr_result = ocr_model.ocr(cropped, cls=True)
-        if ocr_result and isinstance(ocr_result, list) and len(ocr_result) > 0 and \
-           ocr_result[0] and isinstance(ocr_result[0], list) and len(ocr_result[0]) > 0:
-            result_text = ocr_result[0][0][1][0]
-            score = ocr_result[0][0][1][1]
-        else:
-            result_text, score = '', 0.0
-        result_dict[idx] = (result_text, score)
-    return result_dict
-"""
 
 def recognize_text_from_indices(image, ocr_boxes, indices):
     result_dict = {}
@@ -510,7 +509,7 @@ def process_folder(image_folder, predictor_func, output_folder, label, save_ocr=
                 })
 
         # Filter OCR boxes
-        filtered_ocr_boxes = filter_ocr_boxes_inside_legends(raw_ocr_boxes, legend_results_ori)
+        filtered_ocr_boxes = filter_ocr_boxes_inside_legends(raw_ocr_boxes, legend_results_ori, iou_thresh=0.8)
         filtered_ocr_boxes = adjust_ocr_boxes_by_cutting_overlapping_legends(filtered_ocr_boxes, legend_results_ori)
 
         # Match
